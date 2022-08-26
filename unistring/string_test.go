@@ -1,7 +1,6 @@
-package unistring_test
+package unistring
 
 import (
-	. "github.com/rarnu/goscript/unistring"
 	"testing"
 )
 
