@@ -467,7 +467,7 @@ func (o *dynamicObject) iterateKeys() iterNextFunc {
 	return o.iterateStringKeys()
 }
 
-func (o *dynamicObject) export(ctx *objectExportCtx) interface{} {
+func (o *dynamicObject) export(ctx *objectExportCtx) any {
 	return o.d
 }
 
@@ -717,7 +717,7 @@ func (a *dynamicArray) iterateKeys() iterNextFunc {
 	return a.iterateStringKeys()
 }
 
-func (a *dynamicArray) export(ctx *objectExportCtx) interface{} {
+func (a *dynamicArray) export(ctx *objectExportCtx) any {
 	return a.a
 }
 

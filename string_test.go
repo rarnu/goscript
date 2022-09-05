@@ -20,7 +20,7 @@ func TestStringOOBProperties(t *testing.T) {
 func TestImportedString(t *testing.T) {
 	vm := New()
 
-	testUnaryOp := func(a, expr string, result interface{}, t *testing.T) {
+	testUnaryOp := func(a, expr string, result any, t *testing.T) {
 		v, err := vm.RunString("a => " + expr)
 		if err != nil {
 			t.Fatal(err)
@@ -41,7 +41,7 @@ func TestImportedString(t *testing.T) {
 		}
 	}
 
-	testBinaryOp := func(a, b, expr string, result interface{}, t *testing.T) {
+	testBinaryOp := func(a, b, expr string, result any, t *testing.T) {
 		v, err := vm.RunString("(a, b) => " + expr)
 		if err != nil {
 			t.Fatal(err)

@@ -12,7 +12,7 @@ import (
 // JsonEncodable 允许使用 JSON.stringify() 来定义 json
 // 注意，如果返回的值本身也实现了 JsonEncodable，它将不会有任何的作用
 type JsonEncodable interface {
-	JsonEncodable() interface{}
+	JsonEncodable() any
 }
 
 // FieldNameMapper 提供 Go 和 Javascript 属性名称之间的自定义映射
@@ -102,7 +102,7 @@ type objectGoReflect struct {
 	valueTypeInfo, origValueTypeInfo *reflectTypeInfo
 	valueCache                       map[string]reflectValueWrapper
 	toString, valueOf                func() Value
-	toJson                           func() interface{}
+	toJson                           func() any
 }
 
 func (o *objectGoReflect) init() {
@@ -195,7 +195,7 @@ func (o *objectGoReflect) _getMethod(jsName string) reflect.Value {
 func (o *objectGoReflect) elemToValue(ev reflect.Value) (Value, reflectValueWrapper) {
 	if isContainer(ev.Kind()) {
 		if ev.Type() == reflectTypeArray {
-			a := o.val.runtime.newObjectGoSlice(ev.Addr().Interface().(*[]interface{}))
+			a := o.val.runtime.newObjectGoSlice(ev.Addr().Interface().(*[]any))
 			return a.val, a
 		}
 		ret := o.val.runtime.reflectValueToValue(ev)
@@ -500,7 +500,7 @@ func (o *objectGoReflect) stringKeys(_ bool, accum []Value) []Value {
 	return accum
 }
 
-func (o *objectGoReflect) export(*objectExportCtx) interface{} {
+func (o *objectGoReflect) export(*objectExportCtx) any {
 	return o.origValue.Interface()
 }
 

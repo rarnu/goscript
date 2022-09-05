@@ -475,11 +475,11 @@ func (a *arrayObject) deleteIdx(idx valueInt, throw bool) bool {
 	return a.baseObject.deleteStr(idx.string(), throw)
 }
 
-func (a *arrayObject) export(ctx *objectExportCtx) interface{} {
+func (a *arrayObject) export(ctx *objectExportCtx) any {
 	if v, exists := ctx.get(a.val); exists {
 		return v
 	}
-	arr := make([]interface{}, a.length)
+	arr := make([]any, a.length)
 	ctx.put(a.val, arr)
 	if a.propValueCount == 0 && a.length == uint32(len(a.values)) && uint32(a.objCount) == a.length {
 		for i, v := range a.values {

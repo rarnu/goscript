@@ -240,7 +240,7 @@ func (o *lazyObject) iterateKeys() iterNextFunc {
 	return obj.iterateKeys()
 }
 
-func (o *lazyObject) export(ctx *objectExportCtx) interface{} {
+func (o *lazyObject) export(ctx *objectExportCtx) any {
 	obj := o.create(o.val)
 	o.val.self = obj
 	return obj.export(ctx)

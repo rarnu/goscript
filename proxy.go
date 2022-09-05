@@ -1039,7 +1039,7 @@ func (p *proxyObject) exportType() reflect.Type {
 	return proxyType
 }
 
-func (p *proxyObject) export(*objectExportCtx) interface{} {
+func (p *proxyObject) export(*objectExportCtx) any {
 	return Proxy{
 		proxy: p,
 	}

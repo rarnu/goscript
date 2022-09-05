@@ -22,7 +22,7 @@ func TestArrayExportProps(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := arr.Export()
-	expected := []interface{}{true}
+	expected := []any{true}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("Expected: %#v, actual: %#v", expected, actual)
 	}

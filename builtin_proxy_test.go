@@ -1154,7 +1154,7 @@ func TestProxy_Object_native_proxy_ownKeys(t *testing.T) {
 	vm := New()
 	proxy := vm.NewProxy(vm.NewObject(), &ProxyTrapConfig{
 		OwnKeys: func(target *Object) (object *Object) {
-			keys := make([]interface{}, 0, len(headers))
+			keys := make([]any, 0, len(headers))
 			for k := range headers {
 				keys = append(keys, k)
 			}

@@ -881,7 +881,7 @@ func ExampleRuntime_ExportTo_funcVariadic() {
 		panic(err)
 	}
 
-	var fn func(args ...interface{}) string
+	var fn func(args ...any) string
 	err = vm.ExportTo(vm.Get("f"), &fn)
 	if err != nil {
 		panic(err)
@@ -1029,19 +1029,19 @@ func TestToValueNil(t *testing.T) {
 		t.Fatalf("struct ptr: %v", v)
 	}
 
-	var m map[string]interface{}
+	var m map[string]any
 	if v := vm.ToValue(m); !IsNull(v) {
-		t.Fatalf("map[string]interface{}: %v", v)
+		t.Fatalf("map[string]any: %v", v)
 	}
 
-	var ar []interface{}
+	var ar []any
 	if v := vm.ToValue(ar); !IsNull(v) {
-		t.Fatalf("[]interface{}: %v", v)
+		t.Fatalf("[]any: %v", v)
 	}
 
-	var arptr *[]interface{}
+	var arptr *[]any
 	if v := vm.ToValue(arptr); !IsNull(v) {
-		t.Fatalf("*[]interface{}: %v", v)
+		t.Fatalf("*[]any: %v", v)
 	}
 }
 
@@ -1061,7 +1061,7 @@ func TestToValueFloat(t *testing.T) {
 
 func TestToValueInterface(t *testing.T) {
 
-	f := func(i interface{}) bool {
+	f := func(i any) bool {
 		return i == t
 	}
 	vm := New()
@@ -1123,7 +1123,7 @@ func TestJSONNil(t *testing.T) {
 	`
 
 	vm := New()
-	var i interface{}
+	var i any
 	_ = vm.Set("i", i)
 	ret, err := vm.RunString(SCRIPT)
 	if err != nil {
@@ -1137,7 +1137,7 @@ func TestJSONNil(t *testing.T) {
 
 type customJsonEncodable struct{}
 
-func (*customJsonEncodable) JsonEncodable() interface{} {
+func (*customJsonEncodable) JsonEncodable() any {
 	return "Test"
 }
 

@@ -157,8 +157,8 @@ func TestGoReflectArrayCopyOnChange(t *testing.T) {
 		}
 	})
 
-	t.Run("[]interface{}", func(t *testing.T) {
-		a := []interface{}{&testGoReflectMethod_O{Test: "1"}, &testGoReflectMethod_O{Test: "2"}}
+	t.Run("[]any", func(t *testing.T) {
+		a := []any{&testGoReflectMethod_O{Test: "1"}, &testGoReflectMethod_O{Test: "2"}}
 
 		_, err = fn(nil, vm.ToValue(a))
 		if err != nil {
@@ -219,9 +219,9 @@ func TestCopyOnChangeReflectSlice(t *testing.T) {
 		}
 	})
 
-	t.Run("[]interface{}", func(t *testing.T) {
+	t.Run("[]any", func(t *testing.T) {
 		type S struct {
-			A []interface{}
+			A []any
 		}
 		var s S
 		_, err := fn(nil, vm.ToValue(&s))

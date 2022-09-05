@@ -292,7 +292,7 @@ func (ue *uncatchableException) Unwrap() error {
 
 type InterruptedError struct {
 	Exception
-	iface interface{}
+	iface any
 }
 
 func (e *InterruptedError) Unwrap() error {
@@ -306,7 +306,7 @@ type StackOverflowError struct {
 	Exception
 }
 
-func (e *InterruptedError) Value() interface{} {
+func (e *InterruptedError) Value() any {
 	return e.iface
 }
 
@@ -454,13 +454,13 @@ func (r *Runtime) init() {
 	})
 }
 
-func (r *Runtime) typeErrorResult(throw bool, args ...interface{}) {
+func (r *Runtime) typeErrorResult(throw bool, args ...any) {
 	if throw {
 		panic(r.NewTypeError(args...))
 	}
 }
 
-func (r *Runtime) newError(typ *Object, format string, args ...interface{}) Value {
+func (r *Runtime) newError(typ *Object, format string, args ...any) Value {
 	var msg string
 	if len(args) > 0 {
 		msg = fmt.Sprintf(format, args...)
@@ -522,7 +522,7 @@ func (r *Runtime) CreateObject(proto *Object) *Object {
 	return r.newBaseObject(proto, classObject).val
 }
 
-func (r *Runtime) NewArray(items ...interface{}) *Object {
+func (r *Runtime) NewArray(items ...any) *Object {
 	values := make([]Value, len(items))
 	for i, item := range items {
 		values[i] = r.ToValue(item)
@@ -530,7 +530,7 @@ func (r *Runtime) NewArray(items ...interface{}) *Object {
 	return r.newArrayValues(values)
 }
 
-func (r *Runtime) NewTypeError(args ...interface{}) *Object {
+func (r *Runtime) NewTypeError(args ...any) *Object {
 	msg := ""
 	if len(args) > 0 {
 		f, _ := args[0].(string)
@@ -1431,7 +1431,7 @@ func (r *Runtime) CaptureCallStack(depth int, stack []StackFrame) []StackFrame {
 // 如果中断后的堆栈是空的，那么当前排队的 Promise 解析/拒绝作业将被清除而不被执行
 // 注意，它只在 Javascript 代码中工作，它不会中断原生 Go 函数（包括所有的内置函数）
 // 如果执行中断时，当前没有脚本正在运行，那么在下一次 Run*() 调用时就会立即中断，为了避免这种情况，请使用ClearInterrupt()
-func (r *Runtime) Interrupt(v interface{}) {
+func (r *Runtime) Interrupt(v any) {
 	r.vm.Interrupt(v)
 }
 
@@ -1613,7 +1613,7 @@ ToValue 将 Go 值转换为最合适类型的 Javascript值。结构类型（如
       任何其他类型被转换为基于反射的通用 host 对象。根据底层类型的不同，它的行为类似于与数字、字符串、布尔值或对象
       请注意，底层类型不会丢失，调用 Export() 返回原始的 Go 值。这适用于所有基于反射的类型
 */
-func (r *Runtime) ToValue(i interface{}) Value {
+func (r *Runtime) ToValue(i any) Value {
 	switch i := i.(type) {
 	case nil:
 		return _null
@@ -1690,7 +1690,7 @@ func (r *Runtime) ToValue(i interface{}) Value {
 		return floatToValue(float64(i))
 	case float64:
 		return floatToValue(i)
-	case map[string]interface{}:
+	case map[string]any:
 		if i == nil {
 			return _null
 		}
@@ -1705,12 +1705,12 @@ func (r *Runtime) ToValue(i interface{}) Value {
 		obj.self = m
 		m.init()
 		return obj
-	case []interface{}:
+	case []any:
 		if i == nil {
 			return _null
 		}
 		return r.newObjectGoSlice(&i).val
-	case *[]interface{}:
+	case *[]any:
 		if i == nil {
 			return _null
 		}
@@ -1871,7 +1871,7 @@ func (r *Runtime) wrapReflectFunc(value reflect.Value) func(FunctionCall) Value 
 		case 1:
 			return r.ToValue(out[0].Interface())
 		default:
-			s := make([]interface{}, len(out))
+			s := make([]any, len(out))
 			for i, v := range out {
 				s[i] = v.Interface()
 			}
@@ -2143,7 +2143,7 @@ ExportTo 将一个 Javascript 值转换为指定的 Go 值。第二个参数必�
       代理对象的处理方式与从 ES 代码中访问它们的属性（如 length 或 Symbol.iterator）相同。这意味着将它们导出到 Slice 类型中可以工作，
       但是将代理的 map 导出到 map 类型中不会同时导出其内容，因为代理不被认可为 map。这也适用于代理的 Set
 */
-func (r *Runtime) ExportTo(v Value, target interface{}) error {
+func (r *Runtime) ExportTo(v Value, target any) error {
 	tval := reflect.ValueOf(target)
 	if tval.Kind() != reflect.Ptr || tval.IsNil() {
 		return errors.New("target must be a non-nil pointer")
@@ -2157,7 +2157,7 @@ func (r *Runtime) GlobalObject() *Object {
 
 // Set 在全局环境中设置指定的变量
 // 相当于在非严格模式下运行 "name = value"，需要首先使用 ToValue() 转换数值
-func (r *Runtime) Set(name string, value interface{}) error {
+func (r *Runtime) Set(name string, value any) error {
 	return r.try(func() {
 		name := unistring.NewFromString(name)
 		v := r.ToValue(value)
@@ -2323,7 +2323,7 @@ func NegativeInf() Value {
 	return _negativeInf
 }
 
-func tryFunc(f func()) (ret interface{}) {
+func tryFunc(f func()) (ret any) {
 	defer func() {
 		ret = recover()
 	}()
@@ -2345,7 +2345,7 @@ func (r *Runtime) tryPanic(f func()) {
 	}
 }
 
-func (r *Runtime) toObject(v Value, args ...interface{}) *Object {
+func (r *Runtime) toObject(v Value, args ...any) *Object {
 	if obj, ok := v.(*Object); ok {
 		return obj
 	}

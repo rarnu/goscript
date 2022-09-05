@@ -554,7 +554,7 @@ func TestGoReflectCustomNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(v.Export(), []interface{}{"b"}) {
+		if !reflect.DeepEqual(v.Export(), []any{"b"}) {
 			t.Fatalf("Expected [\"b\"], got %v", v.Export())
 		}
 	})
@@ -1135,9 +1135,9 @@ func TestGoObj__Proto__(t *testing.T) {
 	}
 	vm := New()
 	_ = vm.Set("s", S{})
-	_ = vm.Set("m", map[string]interface{}{})
+	_ = vm.Set("m", map[string]any{})
 	_ = vm.Set("mr", map[int]string{})
-	_ = vm.Set("a", []interface{}{})
+	_ = vm.Set("a", []any{})
 	_ = vm.Set("ar", []string{})
 	_, err := vm.RunString(`
 	function f(s, expectedCtor, prefix) {
@@ -1248,10 +1248,10 @@ func TestGoReflectCopyOnWrite(t *testing.T) {
 func TestReflectOverwriteReflectMap(t *testing.T) {
 	vm := New()
 	type S struct {
-		M map[int]interface{}
+		M map[int]any
 	}
 	var s S
-	s.M = map[int]interface{}{
+	s.M = map[int]any{
 		0: true,
 	}
 	_ = vm.Set("s", &s)

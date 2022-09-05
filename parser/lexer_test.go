@@ -13,7 +13,7 @@ func TestLexer(t *testing.T) {
 			p := newParser("", src)
 			return p
 		}
-		test := func(src string, test ...interface{}) {
+		test := func(src string, test ...any) {
 			p := setup(src)
 			for len(test) > 0 {
 				tkn, literal, _, idx := p.scan()

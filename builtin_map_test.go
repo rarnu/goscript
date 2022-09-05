@@ -64,7 +64,7 @@ func TestMapEvilIterator(t *testing.T) {
 
 func TestMapExportToNilMap(t *testing.T) {
 	vm := New()
-	var m map[int]interface{}
+	var m map[int]any
 	res, err := vm.RunString("new Map([[1, true]])")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestMapExportToNilMap(t *testing.T) {
 
 func TestMapExportToNonNilMap(t *testing.T) {
 	vm := New()
-	m := map[int]interface{}{
+	m := map[int]any{
 		2: true,
 	}
 	res, err := vm.RunString("new Map([[1, true]])")
@@ -140,7 +140,7 @@ func ExampleRuntime_ExportTo_mapToSlice() {
 	if err != nil {
 		panic(err)
 	}
-	exp := make([][]interface{}, 0)
+	exp := make([][]any, 0)
 	err = vm.ExportTo(m, &exp)
 	if err != nil {
 		panic(err)
@@ -157,7 +157,7 @@ func ExampleRuntime_ExportTo_mapToTypedSlice() {
 	if err != nil {
 		panic(err)
 	}
-	exp := make([][2]interface{}, 0)
+	exp := make([][2]any, 0)
 	err = vm.ExportTo(m, &exp)
 	if err != nil {
 		panic(err)

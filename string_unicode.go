@@ -534,7 +534,7 @@ func (s unicodeString) toUpper() valueString {
 	return newStringValue(caser.String(s.String()))
 }
 
-func (s unicodeString) Export() interface{} {
+func (s unicodeString) Export() any {
 	return s.String()
 }
 

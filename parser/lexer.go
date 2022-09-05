@@ -825,7 +825,7 @@ func hex2decimal(chr byte) (value rune, ok bool) {
 	return
 }
 
-func parseNumberLiteral(literal string) (value interface{}, err error) {
+func parseNumberLiteral(literal string) (value any, err error) {
 	value, err = strconv.ParseInt(literal, 0, 64)
 	if err == nil {
 		return

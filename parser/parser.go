@@ -82,7 +82,7 @@ func newParser(filename, src string) *parser {
 	return _newParser(filename, src, 1)
 }
 
-func ReadSource(filename string, src interface{}) ([]byte, error) {
+func ReadSource(filename string, src any) ([]byte, error) {
 	if src != nil {
 		switch src := src.(type) {
 		case string:

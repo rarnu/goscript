@@ -58,7 +58,7 @@ func TestParseFile(t *testing.T) {
 
 func TestParseFunction(t *testing.T) {
 	tt(t, func() {
-		test := func(prm, bdy string, expect interface{}) *ast.FunctionLiteral {
+		test := func(prm, bdy string, expect any) *ast.FunctionLiteral {
 			function, err := ParseFunction(prm, bdy)
 			is(firstErr(err), expect)
 			return function
@@ -75,7 +75,7 @@ func TestParseFunction(t *testing.T) {
 
 func TestParserErr(t *testing.T) {
 	tt(t, func() {
-		test := func(input string, expect interface{}) (*ast.Program, *parser) {
+		test := func(input string, expect any) (*ast.Program, *parser) {
 			p := newParser("", input)
 			program, err := p.parse()
 			is(firstErr(err), expect)
@@ -322,7 +322,7 @@ func TestParserErr(t *testing.T) {
 
 func TestParser(t *testing.T) {
 	tt(t, func() {
-		test := func(source string, chk interface{}) *ast.Program {
+		test := func(source string, chk any) *ast.Program {
 			_, program, err := testParse(source)
 			is(firstErr(err), chk)
 			return program
@@ -684,7 +684,7 @@ func Test_parseStringLiteral(t *testing.T) {
 
 func Test_parseNumberLiteral(t *testing.T) {
 	tt(t, func() {
-		test := func(input string, expect interface{}) {
+		test := func(input string, expect any) {
 			result, err := parseNumberLiteral(input)
 			is(err, nil)
 			is(result, expect)

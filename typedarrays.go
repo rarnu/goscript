@@ -874,7 +874,7 @@ func (o *arrayBufferObject) exportType() reflect.Type {
 	return arrayBufferType
 }
 
-func (o *arrayBufferObject) export(*objectExportCtx) interface{} {
+func (o *arrayBufferObject) export(*objectExportCtx) any {
 	return ArrayBuffer{
 		buf: o,
 	}

@@ -254,7 +254,7 @@ type vm struct {
 	stashAllocs      int
 	halt             bool
 	interrupted      uint32
-	interruptVal     interface{}
+	interruptVal     any
 	interruptLock    sync.Mutex
 }
 
@@ -504,7 +504,7 @@ func (vm *vm) run() {
 	}
 }
 
-func (vm *vm) Interrupt(v interface{}) {
+func (vm *vm) Interrupt(v any) {
 	vm.interruptLock.Lock()
 	vm.interruptVal = v
 	atomic.StoreUint32(&vm.interrupted, 1)
@@ -4856,7 +4856,7 @@ func (getThisDynamic) exec(vm *vm) {
 }
 
 type throwConst struct {
-	v interface{}
+	v any
 }
 
 func (t throwConst) exec(vm *vm) {

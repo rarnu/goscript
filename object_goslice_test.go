@@ -13,7 +13,7 @@ func TestGoSliceBasic(t *testing.T) {
 	sum;
 	`
 	r := New()
-	_ = r.Set("a", []interface{}{1, 2, 3, 4})
+	_ = r.Set("a", []any{1, 2, 3, 4})
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestGoSliceIn(t *testing.T) {
 	idx;
 	`
 	r := New()
-	_ = r.Set("a", []interface{}{1, 2, 3, 4})
+	_ = r.Set("a", []any{1, 2, 3, 4})
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestGoSliceExpand(t *testing.T) {
 	sum;
 	`
 	r := New()
-	a := []interface{}{int64(1), int64(2), int64(3), int64(4)}
+	a := []any{int64(1), int64(2), int64(3), int64(4)}
 	_ = r.Set("a", &a)
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestGoSliceProtoMethod(t *testing.T) {
 	`
 
 	r := New()
-	a := []interface{}{1, 2, 3, 4}
+	a := []any{1, 2, 3, 4}
 	_ = r.Set("a", a)
 	ret, err := r.RunString(SCRIPT)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestGoSliceProtoMethod(t *testing.T) {
 
 func TestGoSliceSetLength(t *testing.T) {
 	r := New()
-	a := []interface{}{1, 2, 3, 4}
+	a := []any{1, 2, 3, 4}
 	_ = r.Set("a", &a)
 	_, err := r.RunString(`
 	'use strict';
@@ -119,7 +119,7 @@ func TestGoSliceSetLength(t *testing.T) {
 
 func TestGoSliceProto(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
+	a := []any{1, nil, 3}
 	_ = r.Set("a", &a)
 	r.testScriptWithTestLib(`
 	var proto = [,2,,4];
@@ -144,8 +144,8 @@ func TestGoSliceProto(t *testing.T) {
 
 func TestGoSliceProtoProto(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
-	proto := []interface{}{1, 2, 3, 4}
+	a := []any{1, nil, 3}
+	proto := []any{1, 2, 3, 4}
 	_ = r.Set("a", &a)
 	_ = r.Set("proto", proto)
 	_, err := r.RunString(`
@@ -168,7 +168,7 @@ func TestGoSliceProtoProto(t *testing.T) {
 
 func TestGoSliceDelete(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
+	a := []any{1, nil, 3}
 	_ = r.Set("a", a)
 	v, err := r.RunString(`
 	delete a[0] && delete a[1] && delete a[3];
@@ -183,7 +183,7 @@ func TestGoSliceDelete(t *testing.T) {
 
 func TestGoSlicePop(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
+	a := []any{1, nil, 3}
 	_ = r.Set("a", &a)
 	v, err := r.RunString(`
 	a.pop()
@@ -198,7 +198,7 @@ func TestGoSlicePop(t *testing.T) {
 
 func TestGoSlicePopNoPtr(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
+	a := []any{1, nil, 3}
 	_ = r.Set("a", a)
 	v, err := r.RunString(`
 	a.pop()
@@ -213,7 +213,7 @@ func TestGoSlicePopNoPtr(t *testing.T) {
 
 func TestGoSliceShift(t *testing.T) {
 	r := New()
-	a := []interface{}{1, nil, 3}
+	a := []any{1, nil, 3}
 	_ = r.Set("a", &a)
 	v, err := r.RunString(`
 	a.shift()
@@ -228,7 +228,7 @@ func TestGoSliceShift(t *testing.T) {
 
 func TestGoSliceLengthProperty(t *testing.T) {
 	vm := New()
-	_ = vm.Set("s", []interface{}{2, 3, 4})
+	_ = vm.Set("s", []any{2, 3, 4})
 	_, err := vm.RunString(`
 	if (!s.hasOwnProperty("length")) {
 		throw new Error("hasOwnProperty() returned false");
@@ -245,7 +245,7 @@ func TestGoSliceLengthProperty(t *testing.T) {
 
 func TestGoSliceSort(t *testing.T) {
 	vm := New()
-	s := []interface{}{4, 2, 3}
+	s := []any{4, 2, 3}
 	_ = vm.Set("s", &s)
 	_, err := vm.RunString(`s.sort()`)
 	if err != nil {
@@ -261,7 +261,7 @@ func TestGoSliceSort(t *testing.T) {
 
 func TestGoSliceToString(t *testing.T) {
 	vm := New()
-	s := []interface{}{4, 2, 3}
+	s := []any{4, 2, 3}
 	_ = vm.Set("s", &s)
 	res, err := vm.RunString("`${s}`")
 	if err != nil {

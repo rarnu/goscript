@@ -4,7 +4,7 @@ import (
 	"reflect"
 )
 
-var mapExportType = reflect.TypeOf([][2]interface{}{})
+var mapExportType = reflect.TypeOf([][2]any{})
 
 type mapObject struct {
 	baseObject
@@ -50,8 +50,8 @@ func (mo *mapObject) exportType() reflect.Type {
 	return mapExportType
 }
 
-func (mo *mapObject) export(ctx *objectExportCtx) interface{} {
-	m := make([][2]interface{}, mo.m.size)
+func (mo *mapObject) export(ctx *objectExportCtx) any {
+	m := make([][2]any, mo.m.size)
 	ctx.put(mo.val, m)
 
 	iter := mo.m.newIter()

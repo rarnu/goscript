@@ -54,7 +54,7 @@ type boundFuncObject struct {
 	wrapped *Object
 }
 
-func (f *nativeFuncObject) export(*objectExportCtx) interface{} {
+func (f *nativeFuncObject) export(*objectExportCtx) any {
 	return f.f
 }
 
@@ -173,7 +173,7 @@ func (f *classFuncObject) assertCallable() (func(FunctionCall) Value, bool) {
 	return f.Call, true
 }
 
-func (f *classFuncObject) export(*objectExportCtx) interface{} {
+func (f *classFuncObject) export(*objectExportCtx) any {
 	return f.Call
 }
 
@@ -305,7 +305,7 @@ func (f *baseJsFuncObject) call(call FunctionCall, newTarget Value) Value {
 	return f._call(call.Arguments, newTarget, nilSafe(call.This))
 }
 
-func (f *baseJsFuncObject) export(*objectExportCtx) interface{} {
+func (f *baseJsFuncObject) export(*objectExportCtx) any {
 	return f.Call
 }
 
@@ -325,7 +325,7 @@ func (f *arrowFuncObject) assertCallable() (func(FunctionCall) Value, bool) {
 	return f.Call, true
 }
 
-func (f *arrowFuncObject) export(*objectExportCtx) interface{} {
+func (f *arrowFuncObject) export(*objectExportCtx) any {
 	return f.Call
 }
 

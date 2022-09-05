@@ -177,7 +177,7 @@ func TestGoSliceReflectProtoMethod(t *testing.T) {
 	}
 }
 
-type gosliceReflect_withMethods []interface{}
+type gosliceReflect_withMethods []any
 
 func (s gosliceReflect_withMethods) Method() bool {
 	return true

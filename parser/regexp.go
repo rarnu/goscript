@@ -405,7 +405,7 @@ func (r *regExpParser) passString(start, end int) {
 	r.goRegexp.WriteString(r.str[start:end])
 }
 
-func (r *regExpParser) error(fatal bool, msg string, msgValues ...interface{}) {
+func (r *regExpParser) error(fatal bool, msg string, msgValues ...any) {
 	if r.err != nil {
 		return
 	}

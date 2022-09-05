@@ -201,7 +201,7 @@ func TestArraySparseExportProps(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := arr.Export()
-	if actualArr, ok := actual.([]interface{}); ok {
+	if actualArr, ok := actual.([]any); ok {
 		if len(actualArr) == 20472 {
 			expectedIdx := map[int]struct{}{
 				0:     {},

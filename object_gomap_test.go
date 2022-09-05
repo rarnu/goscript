@@ -7,7 +7,7 @@ func TestGomapProp(t *testing.T) {
 	o.a + o.b;
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{
+	_ = r.Set("o", map[string]any{
 		"a": 40,
 		"b": 2,
 	})
@@ -45,7 +45,7 @@ func TestGomapEnumerate(t *testing.T) {
 	hasX && hasY;
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{
+	_ = r.Set("o", map[string]any{
 		"x": 40,
 		"y": 2,
 	})
@@ -86,7 +86,7 @@ func TestGomapDeleteWhileEnumerate(t *testing.T) {
 	hasX && !hasY || hasY && !hasX;
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{
+	_ = r.Set("o", map[string]any{
 		"x": 40,
 		"y": 2,
 	})
@@ -105,7 +105,7 @@ func TestGomapInstanceOf(t *testing.T) {
 	(o instanceof Object) && !(o instanceof Error);
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{})
+	_ = r.Set("o", map[string]any{})
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestGomapTypeOf(t *testing.T) {
 	typeof o;
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{})
+	_ = r.Set("o", map[string]any{})
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestGomapProto(t *testing.T) {
 	o.hasOwnProperty("test");
 	`
 	r := New()
-	_ = r.Set("o", map[string]interface{}{
+	_ = r.Set("o", map[string]any{
 		"test": 42,
 	})
 	v, err := r.RunString(SCRIPT)
@@ -167,7 +167,7 @@ func TestGoMapExtensibility(t *testing.T) {
 	`
 
 	r := New()
-	_ = r.Set("o", map[string]interface{}{})
+	_ = r.Set("o", map[string]any{})
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
 		if ex, ok := err.(*Exception); ok {
@@ -185,7 +185,7 @@ func TestGoMapExtensibility(t *testing.T) {
 
 func TestGoMapWithProto(t *testing.T) {
 	vm := New()
-	m := map[string]interface{}{
+	m := map[string]any{
 		"t": "42",
 	}
 	_ = vm.Set("m", m)
@@ -256,7 +256,7 @@ func TestGoMapProtoProp(t *testing.T) {
 	`
 
 	r := New()
-	_ = r.Set("m", map[string]interface{}{})
+	_ = r.Set("m", map[string]any{})
 	r.testScriptWithTestLib(SCRIPT, _undefined, t)
 }
 
@@ -294,7 +294,7 @@ func TestGoMapProtoPropChain(t *testing.T) {
 	`
 
 	r := New()
-	_ = r.Set("m", map[string]interface{}{})
+	_ = r.Set("m", map[string]any{})
 	r.testScriptWithTestLib(SCRIPT, _undefined, t)
 }
 
@@ -310,7 +310,7 @@ func TestGoMapUnicode(t *testing.T) {
 		Тест string
 	}
 	vm := New()
-	m := map[string]interface{}{
+	m := map[string]any{
 		"é": 42,
 	}
 	s := S{

@@ -143,7 +143,7 @@ func TestExportCircular(t *testing.T) {
 	o := vm.NewObject()
 	_ = o.Set("o", o)
 	v := o.Export()
-	if m, ok := v.(map[string]interface{}); ok {
+	if m, ok := v.(map[string]any); ok {
 		if reflect.ValueOf(m["o"]).Pointer() != reflect.ValueOf(v).Pointer() {
 			t.Fatal("Unexpected value")
 		}
@@ -156,7 +156,7 @@ func TestExportCircular(t *testing.T) {
 		t.Fatal(err)
 	}
 	v = res.Export()
-	if a, ok := v.([]interface{}); ok {
+	if a, ok := v.([]any); ok {
 		if reflect.ValueOf(a[0]).Pointer() != reflect.ValueOf(v).Pointer() {
 			t.Fatal("Unexpected value")
 		}
@@ -176,7 +176,7 @@ func TestExportToCircular(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
 	_ = o.Set("o", o)
-	var m map[string]interface{}
+	var m map[string]any
 	err := vm.ExportTo(o, &m)
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestExportToCircular(t *testing.T) {
 	}
 
 	type test_s2 struct {
-		S  interface{}
+		S  any
 		S1 *test_s2
 	}
 
@@ -228,7 +228,7 @@ func TestExportToCircular(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m, ok := s2.S.(map[string]interface{}); ok {
+	if m, ok := s2.S.(map[string]any); ok {
 		if reflect.ValueOf(m["S"]).Pointer() != reflect.ValueOf(m).Pointer() {
 			t.Fatal("Unexpected m.S")
 		}
@@ -253,11 +253,11 @@ func TestExportToCircular(t *testing.T) {
 
 func TestExportWrappedMap(t *testing.T) {
 	vm := New()
-	m := map[string]interface{}{
+	m := map[string]any{
 		"test": "failed",
 	}
 	exported := vm.ToValue(m).Export()
-	if exportedMap, ok := exported.(map[string]interface{}); ok {
+	if exportedMap, ok := exported.(map[string]any); ok {
 		exportedMap["test"] = "passed"
 		if v := m["test"]; v != "passed" {
 			t.Fatalf("Unexpected m[\"test\"]: %v", v)
@@ -269,10 +269,10 @@ func TestExportWrappedMap(t *testing.T) {
 
 func TestExportToWrappedMap(t *testing.T) {
 	vm := New()
-	m := map[string]interface{}{
+	m := map[string]any{
 		"test": "failed",
 	}
-	var exported map[string]interface{}
+	var exported map[string]any
 	err := vm.ExportTo(vm.ToValue(m), &exported)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestExportToWrappedMapCustom(t *testing.T) {
 func TestExportToSliceNonIterable(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	var a []interface{}
+	var a []any
 	err := vm.ExportTo(o, &a)
 	if err == nil {
 		t.Fatal("Expected an error")
@@ -416,7 +416,7 @@ func TestExportIterableToArrayMismatchedLengths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var a1 [3]interface{}
+	var a1 [3]any
 	err = vm.ExportTo(a, &a1)
 	if err == nil {
 		t.Fatal("expected error")
@@ -439,7 +439,7 @@ func TestExportArrayLikeToArrayMismatchedLengths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var a1 [3]interface{}
+	var a1 [3]any
 	err = vm.ExportTo(a, &a1)
 	if err == nil {
 		t.Fatal("expected error")

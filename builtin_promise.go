@@ -140,7 +140,7 @@ func (p *Promise) exportType() reflect.Type {
 	return typePromise
 }
 
-func (p *Promise) export(*objectExportCtx) interface{} {
+func (p *Promise) export(*objectExportCtx) any {
 	return p
 }
 
@@ -561,9 +561,9 @@ func (r *Runtime) initPromise() {
 	r.addToGlobal("Promise", r.global.Promise)
 }
 
-func (r *Runtime) wrapPromiseReaction(fObj *Object) func(interface{}) {
+func (r *Runtime) wrapPromiseReaction(fObj *Object) func(any) {
 	f, _ := AssertFunction(fObj)
-	return func(x interface{}) {
+	return func(x any) {
 		_, _ = f(nil, r.ToValue(x))
 	}
 }
@@ -585,7 +585,7 @@ func (r *Runtime) wrapPromiseReaction(fObj *Object) func(interface{}) {
 //			})
 //		}()
 //	 }
-func (r *Runtime) NewPromise() (promise *Promise, resolve func(result interface{}), reject func(reason interface{})) {
+func (r *Runtime) NewPromise() (promise *Promise, resolve func(result any), reject func(reason any)) {
 	p := r.newPromise(r.global.PromisePrototype)
 	resolveF, rejectF := p.createResolvingFunctions()
 	return p, r.wrapPromiseReaction(resolveF), r.wrapPromiseReaction(rejectF)

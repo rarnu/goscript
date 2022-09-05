@@ -49,8 +49,8 @@ func (so *setObject) exportType() reflect.Type {
 	return setExportType
 }
 
-func (so *setObject) export(ctx *objectExportCtx) interface{} {
-	a := make([]interface{}, so.m.size)
+func (so *setObject) export(ctx *objectExportCtx) any {
+	a := make([]any, so.m.size)
 	ctx.put(so.val, a)
 	iter := so.m.newIter()
 	for i := 0; i < len(a); i++ {

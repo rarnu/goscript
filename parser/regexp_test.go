@@ -8,7 +8,7 @@ import (
 func TestRegExp(t *testing.T) {
 	tt(t, func() {
 		{
-			test := func(input string, expect interface{}) {
+			test := func(input string, expect any) {
 				_, err := TransformRegExp(input)
 				_, incompat := err.(RegexpErrorIncompatible)
 				is(incompat, false)
@@ -26,7 +26,7 @@ func TestRegExp(t *testing.T) {
 		}
 
 		{
-			test := func(input string, expectErr interface{}) {
+			test := func(input string, expectErr any) {
 				_, err := TransformRegExp(input)
 				_, incompat := err.(RegexpErrorIncompatible)
 				is(incompat, true)

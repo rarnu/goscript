@@ -119,7 +119,7 @@ func (i *importedString) StrictEquals(other Value) bool {
 	return false
 }
 
-func (i *importedString) Export() interface{} {
+func (i *importedString) Export() any {
 	return i.s
 }
 

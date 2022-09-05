@@ -411,11 +411,11 @@ func (a *sparseArrayObject) sortLen() int {
 	return 0
 }
 
-func (a *sparseArrayObject) export(ctx *objectExportCtx) interface{} {
+func (a *sparseArrayObject) export(ctx *objectExportCtx) any {
 	if v, exists := ctx.get(a.val); exists {
 		return v
 	}
-	arr := make([]interface{}, a.length)
+	arr := make([]any, a.length)
 	ctx.put(a.val, arr)
 	var prevIdx uint32
 	for _, item := range a.items {

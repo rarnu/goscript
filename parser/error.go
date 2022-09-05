@@ -67,7 +67,7 @@ func (e Error) Error() string {
 	)
 }
 
-func (p *parser) error(place interface{}, msg string, msgValues ...interface{}) *Error {
+func (p *parser) error(place any, msg string, msgValues ...any) *Error {
 	idx := file.Idx(0)
 	switch pl := place.(type) {
 	case int:

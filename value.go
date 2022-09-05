@@ -45,8 +45,8 @@ var (
 	reflectTypeBool   = reflect.TypeOf(false)
 	reflectTypeNil    = reflect.TypeOf(nil)
 	reflectTypeFloat  = reflect.TypeOf(float64(0))
-	reflectTypeMap    = reflect.TypeOf(map[string]interface{}{})
-	reflectTypeArray  = reflect.TypeOf([]interface{}{})
+	reflectTypeMap    = reflect.TypeOf(map[string]any{})
+	reflectTypeArray  = reflect.TypeOf([]any{})
 	reflectTypeString = reflect.TypeOf("")
 	reflectTypeFunc   = reflect.TypeOf((func(FunctionCall) Value)(nil))
 )
@@ -74,7 +74,7 @@ type Value interface {
 	SameAs(Value) bool
 	Equals(Value) bool
 	StrictEquals(Value) bool
-	Export() interface{}
+	Export() any
 	ExportType() reflect.Type
 	baseObject(r *Runtime) *Object
 	hash(hasher *maphash.Hash) uint64
@@ -231,7 +231,7 @@ func (i valueInt) baseObject(r *Runtime) *Object {
 	return r.global.NumberPrototype
 }
 
-func (i valueInt) Export() interface{} {
+func (i valueInt) Export() any {
 	return int64(i)
 }
 
@@ -325,7 +325,7 @@ func (b valueBool) baseObject(r *Runtime) *Object {
 	return r.global.BooleanPrototype
 }
 
-func (b valueBool) Export() interface{} {
+func (b valueBool) Export() any {
 	return bool(b)
 }
 
@@ -438,7 +438,7 @@ func (n valueNull) baseObject(*Runtime) *Object {
 	return nil
 }
 
-func (n valueNull) Export() interface{} {
+func (n valueNull) Export() any {
 	return nil
 }
 
@@ -535,7 +535,7 @@ func (p *valueProperty) baseObject(r *Runtime) *Object {
 	return nil
 }
 
-func (p *valueProperty) Export() interface{} {
+func (p *valueProperty) Export() any {
 	panic("Cannot export valueProperty")
 }
 
@@ -651,7 +651,7 @@ func (f valueFloat) baseObject(r *Runtime) *Object {
 	return r.global.NumberPrototype
 }
 
-func (f valueFloat) Export() interface{} {
+func (f valueFloat) Export() any {
 	return float64(f)
 }
 
@@ -747,7 +747,7 @@ func (o *Object) baseObject(*Runtime) *Object {
 // 对于数组，返回 []any
 // 在所有其他情况下，以 map[string]any 的形式返回可枚举的非符号属性
 // 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
-func (o *Object) Export() (ret interface{}) {
+func (o *Object) Export() (ret any) {
 	o.runtime.tryPanic(func() {
 		ret = o.self.export(&objectExportCtx{})
 	})
@@ -845,13 +845,13 @@ func (o *Object) DefineAccessorPropertySymbol(name *Symbol, getter, setter Value
 	})
 }
 
-func (o *Object) Set(name string, value interface{}) error {
+func (o *Object) Set(name string, value any) error {
 	return o.runtime.try(func() {
 		o.self.setOwnStr(unistring.NewFromString(name), o.runtime.ToValue(value), true)
 	})
 }
 
-func (o *Object) SetSymbol(name *Symbol, value interface{}) error {
+func (o *Object) SetSymbol(name *Symbol, value any) error {
 	return o.runtime.try(func() {
 		o.self.setOwnSym(name, o.runtime.ToValue(value), true)
 	})
@@ -971,7 +971,7 @@ func (o valueUnresolved) baseObject(*Runtime) *Object {
 	return nil
 }
 
-func (o valueUnresolved) Export() interface{} {
+func (o valueUnresolved) Export() any {
 	o.throw()
 	return nil
 }
@@ -1047,7 +1047,7 @@ func (s *Symbol) StrictEquals(o Value) bool {
 	return s.SameAs(o)
 }
 
-func (s *Symbol) Export() interface{} {
+func (s *Symbol) Export() any {
 	return s.String()
 }
 
@@ -1063,7 +1063,7 @@ func (s *Symbol) hash(*maphash.Hash) uint64 {
 	return uint64(s.h)
 }
 
-func exportValue(v Value, ctx *objectExportCtx) interface{} {
+func exportValue(v Value, ctx *objectExportCtx) any {
 	if obj, ok := v.(*Object); ok {
 		return obj.self.export(ctx)
 	}
@@ -1105,7 +1105,7 @@ func funcName(prefix string, n Value) valueString {
 	return b.String()
 }
 
-func newTypeError(args ...interface{}) typeError {
+func newTypeError(args ...any) typeError {
 	msg := ""
 	if len(args) > 0 {
 		f, _ := args[0].(string)
@@ -1114,7 +1114,7 @@ func newTypeError(args ...interface{}) typeError {
 	return typeError(msg)
 }
 
-func typeErrorResult(throw bool, args ...interface{}) {
+func typeErrorResult(throw bool, args ...any) {
 	if throw {
 		panic(newTypeError(args...))
 	}

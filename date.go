@@ -134,7 +134,7 @@ func (d *dateObject) exportType() reflect.Type {
 	return typeTime
 }
 
-func (d *dateObject) export(*objectExportCtx) interface{} {
+func (d *dateObject) export(*objectExportCtx) any {
 	if d.isSet() {
 		return d.time()
 	}

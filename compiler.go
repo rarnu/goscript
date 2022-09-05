@@ -382,11 +382,11 @@ func (p *Program) defineLiteralValue(val Value) uint32 {
 	return idx
 }
 
-func (p *Program) dumpCode(logger func(format string, args ...interface{})) {
+func (p *Program) dumpCode(logger func(format string, args ...any)) {
 	p._dumpCode("", logger)
 }
 
-func (p *Program) _dumpCode(indent string, logger func(format string, args ...interface{})) {
+func (p *Program) _dumpCode(indent string, logger func(format string, args ...any)) {
 	logger("values: %+v", p.values)
 	dumpInitFields := func(initFields *Program) {
 		i := indent + ">"
@@ -1210,7 +1210,7 @@ func (c *compiler) emit(instructions ...instruction) {
 	c.p.code = append(c.p.code, instructions...)
 }
 
-func (c *compiler) throwSyntaxError(offset int, format string, args ...interface{}) {
+func (c *compiler) throwSyntaxError(offset int, format string, args ...any) {
 	panic(&CompilerSyntaxError{
 		CompilerError: CompilerError{
 			File:    c.p.src,
@@ -1285,7 +1285,7 @@ func (c *compiler) compileStatementDummy(statement ast.Statement) {
 	leave()
 }
 
-func (c *compiler) assert(cond bool, offset int, msg string, args ...interface{}) {
+func (c *compiler) assert(cond bool, offset int, msg string, args ...any) {
 	if !cond {
 		c.throwSyntaxError(offset, "Compiler bug: "+msg, args...)
 	}

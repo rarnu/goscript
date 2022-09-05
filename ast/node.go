@@ -185,7 +185,7 @@ type NullLiteral struct {
 type NumberLiteral struct {
 	Idx     file.Idx
 	Literal string
-	Value   interface{}
+	Value   any
 }
 
 type ObjectLiteral struct {
