@@ -13,6 +13,8 @@ const (
 	classArray                = "Array"
 	classWeakSet              = "WeakSet"
 	classWeakMap              = "WeakMap"
+	classMysql                = "Mysql"
+	classRedis                = "Redis"
 	classMap                  = "Map"
 	classMath                 = "Math"
 	classSet                  = "Set"

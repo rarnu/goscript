@@ -53,6 +53,8 @@ type global struct {
 	Boolean  *Object
 	RegExp   *Object
 	Date     *Object
+	Mysql    *Object
+	Redis    *Object
 	Symbol   *Object
 	Proxy    *Object
 	Promise  *Object
@@ -95,6 +97,8 @@ type global struct {
 	RegExpPrototype   *Object
 	DatePrototype     *Object
 	SymbolPrototype   *Object
+	MysqlPrototype    *Object
+	RedisPrototype    *Object
 
 	ArrayBufferPrototype *Object
 	DataViewPrototype    *Object
@@ -431,6 +435,11 @@ func (r *Runtime) init() {
 	r.initMap()
 	r.initSet()
 	r.initPromise()
+
+	// 在 js 标准之外定义的额外函数库
+	r.initHttp()
+	r.initMySQL()
+	r.initRedis()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)
 	r.global.throwerProperty = &valueProperty{
