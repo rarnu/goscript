@@ -15,6 +15,8 @@ const (
 	classWeakMap              = "WeakMap"
 	classMysql                = "Mysql"
 	classRedis                = "Redis"
+	classEtcd                 = "Etcd"
+	classKubernetes           = "Kubernetes"
 	classMap                  = "Map"
 	classMath                 = "Math"
 	classSet                  = "Set"

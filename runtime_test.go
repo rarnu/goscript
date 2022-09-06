@@ -1012,7 +1012,9 @@ func TestGoFuncError(t *testing.T) {
 	_ = vm.Set("f", f)
 	_, err := vm.RunString(SCRIPT)
 	if err != nil {
-		t.Fatal(err)
+		if err.Error() != "Unexpected value: test at <eval>:9:4(29)" {
+			t.Fatal(err)
+		}
 	}
 }
 

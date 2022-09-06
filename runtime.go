@@ -45,19 +45,21 @@ type global struct {
 	stash    stash
 	varNames map[unistring.String]struct{}
 
-	Object   *Object
-	Array    *Object
-	Function *Object
-	String   *Object
-	Number   *Object
-	Boolean  *Object
-	RegExp   *Object
-	Date     *Object
-	Mysql    *Object
-	Redis    *Object
-	Symbol   *Object
-	Proxy    *Object
-	Promise  *Object
+	Object     *Object
+	Array      *Object
+	Function   *Object
+	String     *Object
+	Number     *Object
+	Boolean    *Object
+	RegExp     *Object
+	Date       *Object
+	Mysql      *Object
+	Redis      *Object
+	Etcd       *Object
+	Kubernetes *Object
+	Symbol     *Object
+	Proxy      *Object
+	Promise    *Object
 
 	ArrayBuffer       *Object
 	DataView          *Object
@@ -88,17 +90,19 @@ type global struct {
 
 	GoError *Object
 
-	ObjectPrototype   *Object
-	ArrayPrototype    *Object
-	NumberPrototype   *Object
-	StringPrototype   *Object
-	BooleanPrototype  *Object
-	FunctionPrototype *Object
-	RegExpPrototype   *Object
-	DatePrototype     *Object
-	SymbolPrototype   *Object
-	MysqlPrototype    *Object
-	RedisPrototype    *Object
+	ObjectPrototype     *Object
+	ArrayPrototype      *Object
+	NumberPrototype     *Object
+	StringPrototype     *Object
+	BooleanPrototype    *Object
+	FunctionPrototype   *Object
+	RegExpPrototype     *Object
+	DatePrototype       *Object
+	SymbolPrototype     *Object
+	MysqlPrototype      *Object
+	RedisPrototype      *Object
+	EtcdPrototype       *Object
+	KubernetesPrototype *Object
 
 	ArrayBufferPrototype *Object
 	DataViewPrototype    *Object
