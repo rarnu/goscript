@@ -444,6 +444,8 @@ func (r *Runtime) init() {
 	r.initHttp()
 	r.initMySQL()
 	r.initRedis()
+	r.initEtcd()
+	r.initFile()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)
 	r.global.throwerProperty = &valueProperty{
@@ -2334,6 +2336,14 @@ func PositiveInf() Value {
 // NegativeInf 返回 JS 负无穷大值
 func NegativeInf() Value {
 	return _negativeInf
+}
+
+func False() Value {
+	return valueFalse
+}
+
+func True() Value {
+	return valueTrue
 }
 
 func tryFunc(f func()) (ret any) {
