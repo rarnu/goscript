@@ -48,7 +48,7 @@ type Script struct {
 }
 
 type response struct {
-	Value interface{}
+	Value any
 	Error error
 }
 
@@ -155,12 +155,12 @@ func (s *Script) Close() error {
 }
 
 // Execute 按照送入的参数来执行脚本，得到执行后的返回值
-func (s *Script) Execute(args ...interface{}) (interface{}, error) {
+func (s *Script) Execute(args ...any) (any, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	if len(args) == 0 {
-		args = []interface{}{}
+		args = []any{}
 	}
 	s.executeLock.Lock()
 	defer s.executeLock.Unlock()
@@ -315,7 +315,7 @@ func main() {
 		log.Fatalln(err)
 	}
 	for {
-		var args []interface{}
+		var args []any
 		if err := r.Decode(&args); err != nil {
 			log.Fatalln(err)
 		}
@@ -338,7 +338,7 @@ func main() {
 }
 
 type response struct {
-	Value interface{}
+	Value any
 	Error error
 }
 `
