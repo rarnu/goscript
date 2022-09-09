@@ -447,12 +447,6 @@ func TestCallLessArgsDynamicLocalVar(t *testing.T) {
 	testScript(SCRIPT, intToValue(42), t)
 }
 
-/*
-func TestFib(t *testing.T) {
-	testScript(TEST_FIB, valueInt(9227465), t)
-}
-*/
-
 func TestNativeCall(t *testing.T) {
 	const SCRIPT = `
 	var o = Object(1);

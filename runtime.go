@@ -446,6 +446,7 @@ func (r *Runtime) init() {
 	r.initRedis()
 	r.initEtcd()
 	r.initFile()
+	r.initCrypto()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)
 	r.global.throwerProperty = &valueProperty{

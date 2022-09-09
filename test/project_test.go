@@ -188,6 +188,25 @@ m.md5('abcdefg')
 	}
 }
 
+func TestCrypto(t *testing.T) {
+	SCRIPT := `
+let a = Crypto.md5('abcdefg')
+console.log(a)
+a
+`
+	vm := goscript.New()
+
+	registry := new(require.Registry)
+	registry.Enable(vm)
+	console.Enable(vm)
+
+	p, _ := goscript.Compile("test.js", SCRIPT, false)
+	v, _ := vm.RunProgram(p)
+	if v.String() != "7ac66c0f148de9519b8bd264312c4d64" {
+		t.Fatalf("md5 failed")
+	}
+}
+
 func TestHttp(t *testing.T) {
 	SCRIPT := `
 let ret = HTTP.get('http://10.30.30.78:29013/api/core/license/info', {"token": "abcdefg"})
@@ -206,12 +225,11 @@ console.log(ret.data.data.customer.enterpriseName)
 
 func TestMysql(t *testing.T) {
 	SCRIPT := `
-let db = new Mysql('127.0.0.1', 3306, 'root', 'root', 'LicenseServer')
-let rows = db.query('select ID, LICENSE_CODE, ENTERPRISE_NAME from LICENSE limit 0, 10')
+let db = new Mysql('10.30.30.81', 23306, 'isyscore', 'Isysc0re', 'isc_service')
+let rows = db.query('select * from isc_env limit 0, 10')
 for (i in rows) {
-    console.log(rows[i].ID)
-	console.log(rows[i].LICENSECODE)
-	console.log(rows[i].ENTERPRISENAME)
+    console.log(rows[i].name)
+	console.log(rows[i].domain)
 }
 db.close()
 `
