@@ -61,7 +61,13 @@ func (r *Runtime) builtinHTTP_post(call FunctionCall) Value {
 
 func (r *Runtime) builtinHTTP_postForm(call FunctionCall) Value {
 	u, h, p, _ := parseHttpParams(call)
-	sc, hd, body, err := h0.PostForm(u, h, p)
+	_p := map[string]any{}
+	if p != nil {
+		for k, v := range p {
+			_p[k] = v
+		}
+	}
+	sc, hd, body, err := h0.PostForm(u, h, _p)
 	return parseHttpResult(r, sc, hd, body, err)
 }
 

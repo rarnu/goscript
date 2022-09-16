@@ -7,7 +7,7 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/isyscore/isc-gobase v1.3.1
+	github.com/isyscore/isc-gobase v1.3.2
 	go.etcd.io/etcd/client/v3 v3.5.4
 	golang.org/x/text v0.3.7
 	gopkg.in/yaml.v2 v2.4.0

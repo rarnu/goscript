@@ -262,3 +262,15 @@ cli.close()
 	t.Logf("run error: %v", err)
 
 }
+
+func TestRunCode(t *testing.T) {
+	SCRIPT := `
+	console.log('sample')
+	`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	v0, err := vm.RunString(SCRIPT)
+	vx := v0.Export()
+	t.Logf("v0 = %+v\n, err = %+v\n", vx, err)
+}
