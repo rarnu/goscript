@@ -307,3 +307,9 @@ func TestDateExportType(t *testing.T) {
 		t.Fatal(typ)
 	}
 }
+
+func TestDateNow(t *testing.T) {
+	vm0 := New()
+	v, _ := vm0.RunString(`Date.now()`)
+	t.Logf("%v\n", v.Export())
+}

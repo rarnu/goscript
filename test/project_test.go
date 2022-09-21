@@ -1,9 +1,11 @@
 package test
 
 import (
+	"fmt"
 	"github.com/rarnu/goscript"
 	"github.com/rarnu/goscript/console"
 	"github.com/rarnu/goscript/require"
+	"reflect"
 	"testing"
 )
 
@@ -273,4 +275,52 @@ func TestRunCode(t *testing.T) {
 	v0, err := vm.RunString(SCRIPT)
 	vx := v0.Export()
 	t.Logf("v0 = %+v\n, err = %+v\n", vx, err)
+}
+
+func TestExportMap(t *testing.T) {
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	m, err := vm.RunString(`let a = new Map()
+a.set(1, true)
+a.set(2, false)
+a
+// new Map([[1, true], [2, false]]);
+	`)
+	if err != nil {
+		panic(err)
+	}
+	exp := m.Export()
+	_typ := reflect.TypeOf(exp).String()
+	fmt.Printf("typ = %s\n", _typ)
+
+	fmt.Printf("%T, %v\n", exp, exp)
+	// 输出: [][2]interface {}, [[1 true] [2 false]]
+}
+
+func TestExportObject(t *testing.T) {
+	SCRIPT := `let obj = {id:1, name: 'rarnu', age: 35}
+console.log(obj)
+obj
+`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	v, e := vm.RunString(SCRIPT)
+
+	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
+
+}
+
+func TestExportSimpleObject(t *testing.T) {
+	SCRIPT := `let obj = {id:1, name: 'rarnu', age: 35}
+obj
+`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	v, e := vm.RunString(SCRIPT)
+
+	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
+
 }

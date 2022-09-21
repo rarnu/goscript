@@ -63,7 +63,6 @@ func (mo *mapObject) export(ctx *objectExportCtx) any {
 		m[i][0] = exportValue(entry.key, ctx)
 		m[i][1] = exportValue(entry.value, ctx)
 	}
-
 	return m
 }
 
