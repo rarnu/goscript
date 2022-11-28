@@ -32,19 +32,27 @@ func parseHttpParams(call FunctionCall) (string, map[string][]string, map[string
 
 func parseHttpResult(r *Runtime, sc int, header map[string][]string, body any, err error) Value {
 	var data map[string]any
+	httpRet := map[string]any{
+		"statusCode": sc,
+		"header":     header,
+		"data":       nil,
+		"text":       "",
+		"error":      "",
+	}
 	errMsg := ""
 	if err != nil {
 		errMsg = err.Error()
+		httpRet["error"] = errMsg
 	} else {
-		_ = json.Unmarshal(body.([]byte), &data)
+		err = json.Unmarshal(body.([]byte), &data)
+		httpRet["text"] = string(body.([]byte))
+		if err == nil {
+			httpRet["data"] = data
+		} else {
+			httpRet["error"] = err.Error()
+		}
 	}
-	return r.ToValue(map[string]any{
-		"statusCode": sc,
-		"header":     header,
-		"data":       data,
-		"text":       string(body.([]byte)),
-		"error":      errMsg,
-	})
+	return r.ToValue(httpRet)
 }
 
 func (r *Runtime) builtinHTTP_get(call FunctionCall) Value {

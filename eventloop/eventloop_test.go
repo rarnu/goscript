@@ -12,10 +12,14 @@ import (
 func TestRun(t *testing.T) {
 	t.Parallel()
 	const SCRIPT = `
-	setTimeout(function() {
-		console.log("ok");
-	}, 1000);
-	console.log("Started");
+	let a = 1
+	setTimeout(() => {
+		a = 2
+		console.log(a)
+		console.log("ok")
+	}, 1000)
+	console.log("Started")
+	a
 	`
 
 	loop := NewEventLoop()
@@ -23,9 +27,12 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ret goscript.Value
+	var e0 error
 	loop.Run(func(vm *goscript.Runtime) {
-		_, _ = vm.RunProgram(prg)
+		ret, e0 = vm.RunProgram(prg)
 	})
+	t.Logf("v = %+v, err = %+v\n", ret.Export(), e0)
 }
 
 func TestStart(t *testing.T) {
@@ -313,9 +320,9 @@ func TestPromise(t *testing.T) {
 	let result;
 	const p = new Promise((resolve, reject) => {
 		setTimeout(() => {resolve("passed")}, 500);
-	});
-	p.then(value => {
+	}).then(value => {
 		result = value;
+		console.log(result);
 	});
 	`
 

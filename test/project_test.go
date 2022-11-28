@@ -211,7 +211,7 @@ a
 
 func TestHttp(t *testing.T) {
 	SCRIPT := `
-let ret = HTTP.get('http://10.30.30.78:29013/api/core/license/info', {"token": "abcdefg"})
+let ret = HTTP.get('https://www.qq.com', null, null)
 console.log(ret.statusCode)
 console.log(ret.data.data.licenseCode)
 console.log(ret.data.data.customer.enterpriseName)
