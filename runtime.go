@@ -54,6 +54,10 @@ type global struct {
 	RegExp     *Object
 	Date       *Object
 	Mysql      *Object
+	Oracle     *Object
+	Mssql      *Object
+	Dameng     *Object
+	SQLite     *Object
 	Redis      *Object
 	Etcd       *Object
 	Kubernetes *Object
@@ -100,6 +104,10 @@ type global struct {
 	DatePrototype       *Object
 	SymbolPrototype     *Object
 	MysqlPrototype      *Object
+	OraclePrototype     *Object
+	MssqlPrototype      *Object
+	DamengPrototype     *Object
+	SQLitePrototype     *Object
 	RedisPrototype      *Object
 	EtcdPrototype       *Object
 	KubernetesPrototype *Object
@@ -443,10 +451,15 @@ func (r *Runtime) init() {
 	// 在 js 标准之外定义的额外函数库
 	r.initHttp()
 	r.initMySQL()
+	r.initOracle()
+	r.initMssql()
+	r.initDameng()
+	r.initSQLite()
 	r.initRedis()
 	r.initEtcd()
 	r.initFile()
 	r.initCrypto()
+	r.initK8s()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)
 	r.global.throwerProperty = &valueProperty{
@@ -1301,10 +1314,11 @@ func MustCompile(name, src string, strict bool) *Program {
 
 // Parse 接收一个源字符串并产生一个解析的 AST。如果你想向解析器传递选项，请使用此函数
 // 例如：
-//	 p, err := Parse("test.js", "var a = true", parser.WithDisableSourceMaps)
-//	 if err != nil { /* ... */ }
-//	 prg, err := CompileAST(p, true)
-//	 // ...
+//
+//	p, err := Parse("test.js", "var a = true", parser.WithDisableSourceMaps)
+//	if err != nil { /* ... */ }
+//	prg, err := CompileAST(p, true)
+//	// ...
 //
 // 否则就使用 Compile，它结合了这两个步骤
 func Parse(name, src string, options ...parser.Option) (prg *jast.Program, err error) {
@@ -1461,173 +1475,173 @@ ToValue 将 Go 值转换为最合适类型的 Javascript值。结构类型（如
 
 警告! 这些包装好的 Go 值与原生 ECMAScript 值的行为方式不同。如果你打算在ECMAScript中修改它们，请记住以下注意事项：
 
-1. 如果一个普通的 Javascript 对象被分配为包装的 Go struct、map 或数组中的一个元素，它将被 Export()，因此会被复制，这可能会导致JavaScript中出现意外的行为:
-	m := map[string]any{}
-	vm.Set("m", m)
-	vm.RunString(`
-	    var obj = {test: false};
-	    m.obj = obj; // obj 被 Export()，即复制到一个新的 map[string]any 并且这个 map 被设置到 m["obj"]
-	    obj.test = true; // 注意，这里的 m.obj.test 依然是 false
-	`)
-	fmt.Println(m["obj"].(map[string]any)["test"]) // 打印出 false
+ 1. 如果一个普通的 Javascript 对象被分配为包装的 Go struct、map 或数组中的一个元素，它将被 Export()，因此会被复制，这可能会导致JavaScript中出现意外的行为:
+    m := map[string]any{}
+    vm.Set("m", m)
+    vm.RunString(`
+    var obj = {test: false};
+    m.obj = obj; // obj 被 Export()，即复制到一个新的 map[string]any 并且这个 map 被设置到 m["obj"]
+    obj.test = true; // 注意，这里的 m.obj.test 依然是 false
+    `)
+    fmt.Println(m["obj"].(map[string]any)["test"]) // 打印出 false
 
-2. 如果你在 ECMAScript 中修改嵌套的非指针式复合类型（struct、slice 和数组），要小心，尽可能避免在 ECMAScript 中修改它们，ECMAScript 和 Go 的一个根本区别在于
-   前者的所有对象都是引用，而在 Go 中你可以有一个字面的 struct 或数组。请看下面的例子:
+ 2. 如果你在 ECMAScript 中修改嵌套的非指针式复合类型（struct、slice 和数组），要小心，尽可能避免在 ECMAScript 中修改它们，ECMAScript 和 Go 的一个根本区别在于
+    前者的所有对象都是引用，而在 Go 中你可以有一个字面的 struct 或数组。请看下面的例子:
 
-	type S struct {
-	    Field int
-	}
+    type S struct {
+    Field int
+    }
 
-	a := []S{{1}, {2}} // 节片的字面结构
-	vm.Set("a", &a)
-	vm.RunString(`
-	    let tmp = {Field: 1};
-	    a[0] = tmp;
-	    a[1] = tmp;
-	    tmp.Field = 2;
-	`)
+    a := []S{{1}, {2}} // 节片的字面结构
+    vm.Set("a", &a)
+    vm.RunString(`
+    let tmp = {Field: 1};
+    a[0] = tmp;
+    a[1] = tmp;
+    tmp.Field = 2;
+    `)
 
-   在ECMAScript中，我们希望a[0].Field和a[1].Field等于2，但是这是不可能的(或者至少在没有复杂的引用跟踪的情况下是不可行的)。
-   为了涵盖最常见的使用情况并避免过多的内存分配，"变化时复制" 的机制已被实现（对数组和struct）:
+    在ECMAScript中，我们希望a[0].Field和a[1].Field等于2，但是这是不可能的(或者至少在没有复杂的引用跟踪的情况下是不可行的)。
+    为了涵盖最常见的使用情况并避免过多的内存分配，"变化时复制" 的机制已被实现（对数组和struct）:
 
-   * 当一个嵌套的复合值被访问时，返回的 ES 值成为对字面值的引用。这保证了像 'a[0].Field = 1' 这样的事情能如期进行，对 'a[0].Field' 的简单访问不会导致导致对 a[0] 的复制
-   * 原始的容器（在上述例子中是 'a' ）会跟踪返回的引用值，如果 a[0] 被重新赋值（例如，通过直接赋值、删除或缩小数组），旧的 a[0] 被复制，先前的返回值成为该副本的一个引用
+    * 当一个嵌套的复合值被访问时，返回的 ES 值成为对字面值的引用。这保证了像 'a[0].Field = 1' 这样的事情能如期进行，对 'a[0].Field' 的简单访问不会导致导致对 a[0] 的复制
+    * 原始的容器（在上述例子中是 'a' ）会跟踪返回的引用值，如果 a[0] 被重新赋值（例如，通过直接赋值、删除或缩小数组），旧的 a[0] 被复制，先前的返回值成为该副本的一个引用
 
-   例如：
+    例如：
 
-	let tmp = a[0];                      // 没有复制，tmp 是对 a[0] 的引用
-	tmp.Field = 1;                       // 此时 a[0].Field === 1
-	a[0] = {Field: 2};                   // tmp现在是对旧值副本的引用（Field ===1）
-	a[0].Field === 2 && tmp.Field === 1; // true
+    let tmp = a[0];                      // 没有复制，tmp 是对 a[0] 的引用
+    tmp.Field = 1;                       // 此时 a[0].Field === 1
+    a[0] = {Field: 2};                   // tmp现在是对旧值副本的引用（Field ===1）
+    a[0].Field === 2 && tmp.Field === 1; // true
 
-   * 由原地排序（使用 Array.prototype.sort() ）引起的数组值交换不被视为重新分配，而是引用被调整为指向新的索引
-   * 对内部复合值的赋值总是进行复制（有时还进行类型转换）
+    * 由原地排序（使用 Array.prototype.sort() ）引起的数组值交换不被视为重新分配，而是引用被调整为指向新的索引
+    * 对内部复合值的赋值总是进行复制（有时还进行类型转换）
 
-	a[1] = tmp;    // a[1] 现在是 tmp 的复制
-	tmp.Field = 3; // 不影响 a[1].Field
+    a[1] = tmp;    // a[1] 现在是 tmp 的复制
+    tmp.Field = 3; // 不影响 a[1].Field
 
 3. 非可寻址 struct、slice 和数组被复制。这有时可能会导致混乱，因为分配给内部字段的赋值似乎并不奏效
 
-	a1 := []any{S{1}, S{2}}
-	vm.Set("a1", &a1)
-	vm.RunString(`
-	   a1[0].Field === 1; // true
-	   a1[0].Field = 2;
-	   a1[0].Field === 2; // false, 因为它真正做的是复制 a1[0]，将其字段设置为2，并立即将其删除
-	`)
+		a1 := []any{S{1}, S{2}}
+		vm.Set("a1", &a1)
+		vm.RunString(`
+		   a1[0].Field === 1; // true
+		   a1[0].Field = 2;
+		   a1[0].Field === 2; // false, 因为它真正做的是复制 a1[0]，将其字段设置为2，并立即将其删除
+		`)
 
-   另一种方法是让 a1[0].Field 成为一个不可写的属性，如果需要修改的话，就需要手动复制值，但是这可能是不切实际的
-   注意，这同样适用于 slice。如果一个 slice 是通过值传递的（而不是作为一个指针），调整 slice 的大小并不反映在原来的值。此外，扩展 slice 可能会导致底层数组被重新分配和复制
-   例如:
+	   另一种方法是让 a1[0].Field 成为一个不可写的属性，如果需要修改的话，就需要手动复制值，但是这可能是不切实际的
+	   注意，这同样适用于 slice。如果一个 slice 是通过值传递的（而不是作为一个指针），调整 slice 的大小并不反映在原来的值。此外，扩展 slice 可能会导致底层数组被重新分配和复制
+	   例如:
 
-	a := []any{1}
-	vm.Set("a", a)
-	vm.RunString(`a.push(2); a[0] = 0;`)
-	fmt.Println(a[0]) // 打印 "1"
+		a := []any{1}
+		vm.Set("a", a)
+		vm.RunString(`a.push(2); a[0] = 0;`)
+		fmt.Println(a[0]) // 打印 "1"
 
-   关于个别类型的说明:
-   #原始类型
-      原始类型（数字、字符串、布尔）被转换为相应的 Javascript 原语
-   # 字符串
-      由于 ECMAScript（使用 UTF-16）和 Go（使用 UTF-8）从 JS 到 Go 的转换可能是有损失的。字符串值必须是一个有效的UTF-8。如果不是，无效的字符会被替换为utf8.RuneError
-      但是后续的 Export() 的行为没有被指定（它可能返回原始值，或一个被替换的无效字符）
-   # Nil
-      Nil 被转换为 null
-   # 函数
-      func(FunctionCall) Value被视为一个本地 Javascript 函数。这将提高性能，因为没有自动转换参数和返回值的类型（这涉及到反射）。试图将该函数用作构造函数将导致 TypeError
+	   关于个别类型的说明:
+	   #原始类型
+	      原始类型（数字、字符串、布尔）被转换为相应的 Javascript 原语
+	   # 字符串
+	      由于 ECMAScript（使用 UTF-16）和 Go（使用 UTF-8）从 JS 到 Go 的转换可能是有损失的。字符串值必须是一个有效的UTF-8。如果不是，无效的字符会被替换为utf8.RuneError
+	      但是后续的 Export() 的行为没有被指定（它可能返回原始值，或一个被替换的无效字符）
+	   # Nil
+	      Nil 被转换为 null
+	   # 函数
+	      func(FunctionCall) Value被视为一个本地 Javascript 函数。这将提高性能，因为没有自动转换参数和返回值的类型（这涉及到反射）。试图将该函数用作构造函数将导致 TypeError
 
-      func(ConstructorCall) *Object 被视为一个本地构造函数，允许用 new 操作符一起使用
+	      func(ConstructorCall) *Object 被视为一个本地构造函数，允许用 new 操作符一起使用
 
-		func MyObject(call ConstructorCall) *Object {
-			call.This.Set("method", method)
-	        //...
-	        // instance := &myCustomStruct{}
-	        // instanceValue := vm.ToValue(instance).(*Object)
-	        // instanceValue.SetPrototype(call.This.Prototype())
-	        // return instanceValue
-	        return nil
-	     }
-	     runtime.Set("MyObject", MyObject)
+			func MyObject(call ConstructorCall) *Object {
+				call.This.Set("method", method)
+		        //...
+		        // instance := &myCustomStruct{}
+		        // instanceValue := vm.ToValue(instance).(*Object)
+		        // instanceValue.SetPrototype(call.This.Prototype())
+		        // return instanceValue
+		        return nil
+		     }
+		     runtime.Set("MyObject", MyObject)
 
-      那么它可以在 JS 中使用，如下：
+	      那么它可以在 JS 中使用，如下：
 
-        var o = new MyObject(arg);
-	    var o1 = MyObject(arg); // 等价于上面的
-	    o instanceof MyObject && o1 instanceof MyObject; // true
+	        var o = new MyObject(arg);
+		    var o1 = MyObject(arg); // 等价于上面的
+		    o instanceof MyObject && o1 instanceof MyObject; // true
 
-      当一个本地构造函数被直接调用时（没有new操作符），其行为取决于这个值：如果它是一个对象，它会被传递，否则会创建一个新的对象，就像它是用 new 操作符调用的。在这两种情况下，call.NewTarget 将是 nil
+	      当一个本地构造函数被直接调用时（没有new操作符），其行为取决于这个值：如果它是一个对象，它会被传递，否则会创建一个新的对象，就像它是用 new 操作符调用的。在这两种情况下，call.NewTarget 将是 nil
 
-	  func(ConstructorCall, *Runtime) *Object 的处理方法同上，只是 *Runtime 也被作为参数传递
-      任何其他的 Go 函数都会被包装起来，这样参数就会自动转换为所需的 Go 类型，而返回值被转换为 Javascript 值（使用此方法）。 如果无法转换，则会抛出 TypeError
+		  func(ConstructorCall, *Runtime) *Object 的处理方法同上，只是 *Runtime 也被作为参数传递
+	      任何其他的 Go 函数都会被包装起来，这样参数就会自动转换为所需的 Go 类型，而返回值被转换为 Javascript 值（使用此方法）。 如果无法转换，则会抛出 TypeError
 
-      有多个返回值的函数返回一个数组。如果最后一个返回值是一个 error，它不会被返回，而是被转换成一个 JS 异常。如果错误是 *Exception，它将被原样抛出，否则它将被包裹在一个 GoError 中
-      注意，如果正好有两个返回值，并且最后一个是 error，函数会原样返回第一个值，而不是一个数组
+	      有多个返回值的函数返回一个数组。如果最后一个返回值是一个 error，它不会被返回，而是被转换成一个 JS 异常。如果错误是 *Exception，它将被原样抛出，否则它将被包裹在一个 GoError 中
+	      注意，如果正好有两个返回值，并且最后一个是 error，函数会原样返回第一个值，而不是一个数组
 
-   # Structs
-      struct 被转换为类似对象的值。字段和方法可以作为属性使用，它们的值是这个方法（ToValue()）的结果应用于相应的 Go 值
-      字段属性是可写的、不可配置的，方法属性是不可写和不可配置的
-      试图定义一个新的属性或删除一个现有的属性将会失败（在严格模式下抛出），除非它是一个 Symbol 属性。符号属性只存在于包装器中，不影响底层的 Go 值
-      请注意，由于每次访问一个属性都会创建一个包装器，因此可能会导致一些意想不到的结果，例如：
+	   # Structs
+	      struct 被转换为类似对象的值。字段和方法可以作为属性使用，它们的值是这个方法（ToValue()）的结果应用于相应的 Go 值
+	      字段属性是可写的、不可配置的，方法属性是不可写和不可配置的
+	      试图定义一个新的属性或删除一个现有的属性将会失败（在严格模式下抛出），除非它是一个 Symbol 属性。符号属性只存在于包装器中，不影响底层的 Go 值
+	      请注意，由于每次访问一个属性都会创建一个包装器，因此可能会导致一些意想不到的结果，例如：
 
-		type Field struct{
-		}
-		type S struct {
-			Field *Field
-		}
-		var s = S{
-			Field: &Field{},
-	 	}
-	 	vm := New()
-	 	vm.Set("s", &s)
-	 	res, err := vm.RunString(`
-	 		var sym = Symbol(66);
-	 		var field1 = s.Field;
-	 		field1[sym] = true;
-	 		var field2 = s.Field;
-	 		field1 === field2; // true, 因为 == 操作比较的是被包装的值，而不是包装器
-	 		field1[sym] === true; // true
-	 		field2[sym] === undefined; // true
-	 	`)
+			type Field struct{
+			}
+			type S struct {
+				Field *Field
+			}
+			var s = S{
+				Field: &Field{},
+		 	}
+		 	vm := New()
+		 	vm.Set("s", &s)
+		 	res, err := vm.RunString(`
+		 		var sym = Symbol(66);
+		 		var field1 = s.Field;
+		 		field1[sym] = true;
+		 		var field2 = s.Field;
+		 		field1 === field2; // true, 因为 == 操作比较的是被包装的值，而不是包装器
+		 		field1[sym] === true; // true
+		 		field2[sym] === undefined; // true
+		 	`)
 
-      这同样适用于来自 map 和 slice 的值
+	      这同样适用于来自 map 和 slice 的值
 
-   # 对 time.Time 的处理
-      time.Time 没有得到特殊的处理，因此它的转换就像其他的结构一样，提供对其所有方法的访问
-      这样做是故意的，而不是将其转换为 Date，因为这两种类型并不完全兼容，time.Time 包含时区，而 JS 的 Date 不包含，因此隐含地进行转换会导致信息的丢失
-      如果你需要将其转换为 Date，可以在 JS 中完成。
+	   # 对 time.Time 的处理
+	      time.Time 没有得到特殊的处理，因此它的转换就像其他的结构一样，提供对其所有方法的访问
+	      这样做是故意的，而不是将其转换为 Date，因为这两种类型并不完全兼容，time.Time 包含时区，而 JS 的 Date 不包含，因此隐含地进行转换会导致信息的丢失
+	      如果你需要将其转换为 Date，可以在 JS 中完成。
 
-		var d = new Date(goval.UnixNano()/1e6);
+			var d = new Date(goval.UnixNano()/1e6);
 
-      或者在 Go 中完成：
+	      或者在 Go 中完成：
 
-	 	now := time.Now()
-	 	vm := New()
-	 	val, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(now.UnixNano()/1e6))
-	 	if err != nil {
-			...
-	 	}
-	 	vm.Set("d", val)
+		 	now := time.Now()
+		 	vm := New()
+		 	val, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(now.UnixNano()/1e6))
+		 	if err != nil {
+				...
+		 	}
+		 	vm.Set("d", val)
 
-      请注意，Value.Export() 对于一个 Date 值会返回包含当地时区的 time.Time
+	      请注意，Value.Export() 对于一个 Date 值会返回包含当地时区的 time.Time
 
-   # Maps
-      带有字符串或整数键类型的 map 被转换为 host 对象，其行为大体上与 Javascript 对象类似
+	   # Maps
+	      带有字符串或整数键类型的 map 被转换为 host 对象，其行为大体上与 Javascript 对象类似
 
-   # 带有方法的 Maps
-      如果一个 map 类型定义了方法，那么产生的 Object 的属性代表了它的方法，而不是通过 map 的 key
-      这是因为在 Javascript中，object.key 和 object[key] 之间是没有区别的，这一点与 Go 不同
-      如果需要访问 map 的值，可以通过定义另一个方法来实现，也可以通过定义一个外部 getter 函数
+	   # 带有方法的 Maps
+	      如果一个 map 类型定义了方法，那么产生的 Object 的属性代表了它的方法，而不是通过 map 的 key
+	      这是因为在 Javascript中，object.key 和 object[key] 之间是没有区别的，这一点与 Go 不同
+	      如果需要访问 map 的值，可以通过定义另一个方法来实现，也可以通过定义一个外部 getter 函数
 
-   # Slices
-      slice 被转换为 host 对象，其行为在很大程度上类似于 Javascript 的数组。它有适当的原型，所有常用的方法都可以使用
-      然而，有一点需要注意：转换后的数组不能包含空洞(因为 Go slice 不能)。这意味着 hasOwnProperty(n) 总是在 n < length 时返回 true
-      删除一个 索引小于 length 的项将被设置为零值（但属性会保留）。nil slice 元素将被转换为 null
-      访问一个超过 length 的元素会返回 undefined。也请看上面的警告，关于将 slice 作为值（相较于指针）
+	   # Slices
+	      slice 被转换为 host 对象，其行为在很大程度上类似于 Javascript 的数组。它有适当的原型，所有常用的方法都可以使用
+	      然而，有一点需要注意：转换后的数组不能包含空洞(因为 Go slice 不能)。这意味着 hasOwnProperty(n) 总是在 n < length 时返回 true
+	      删除一个 索引小于 length 的项将被设置为零值（但属性会保留）。nil slice 元素将被转换为 null
+	      访问一个超过 length 的元素会返回 undefined。也请看上面的警告，关于将 slice 作为值（相较于指针）
 
-   # 数组
-      数组的转换与 slice 的转换类似，只是产生的数组不能调整大小（length 属性是不可写的）
-      任何其他类型被转换为基于反射的通用 host 对象。根据底层类型的不同，它的行为类似于与数字、字符串、布尔值或对象
-      请注意，底层类型不会丢失，调用 Export() 返回原始的 Go 值。这适用于所有基于反射的类型
+	   # 数组
+	      数组的转换与 slice 的转换类似，只是产生的数组不能调整大小（length 属性是不可写的）
+	      任何其他类型被转换为基于反射的通用 host 对象。根据底层类型的不同，它的行为类似于与数字、字符串、布尔值或对象
+	      请注意，底层类型不会丢失，调用 Export() 返回原始的 Go 值。这适用于所有基于反射的类型
 */
 func (r *Runtime) ToValue(i any) Value {
 	switch i := i.(type) {
@@ -2121,43 +2135,43 @@ func (r *Runtime) wrapJSFunc(fn Callable, typ reflect.Type) func(args []reflect.
 /*
 ExportTo 将一个 Javascript 值转换为指定的 Go 值。第二个参数必须是一个非空的指针，如果不能转换，则返回错误
 
-   关于具体案例的说明:
+	关于具体案例的说明:
 
-   # 空接口
-      导出为一个空的 any，与 Value.Export() 产生的类型相同的值
+	# 空接口
+	   导出为一个空的 any，与 Value.Export() 产生的类型相同的值
 
-   # 数值类型
-      导出到数字类型使用标准的 ECMAScript 转换操作，与向非钳制类型的数组项赋值时使用相同
+	# 数值类型
+	   导出到数字类型使用标准的 ECMAScript 转换操作，与向非钳制类型的数组项赋值时使用相同
 
-   # 函数
-      导出到一个 func 将创建一个严格类型的'网关'到一个可以从 Go 中调用的 ES 函数内
-      使用 Runtime.ToValue() 将参数转换为 ES 值。如果 func 没有返回值，则返回值被忽略。如果 func 正好有一个返回值，
-      则使用 ExportTo() 将其转换为适当的类型。如果 func 正好有 2 个返回值，并且第二个值是 error ，那么异常将被捕获并作为*Exception返回
-      在所有其他情况下，异常会导致 panic。任何额外的返回值都被清零
+	# 函数
+	   导出到一个 func 将创建一个严格类型的'网关'到一个可以从 Go 中调用的 ES 函数内
+	   使用 Runtime.ToValue() 将参数转换为 ES 值。如果 func 没有返回值，则返回值被忽略。如果 func 正好有一个返回值，
+	   则使用 ExportTo() 将其转换为适当的类型。如果 func 正好有 2 个返回值，并且第二个值是 error ，那么异常将被捕获并作为*Exception返回
+	   在所有其他情况下，异常会导致 panic。任何额外的返回值都被清零
 
-      注意，如果你想捕捉并返回异常作为 error，并且你不需要返回值，func(...) error 将不能像预期那样工作。在这种情况下，error 被映射到函数的返回值，而不是异常，这仍然会导致 panic
-      使用 func(...) (Value, error) 代替，并且忽略Value
+	   注意，如果你想捕捉并返回异常作为 error，并且你不需要返回值，func(...) error 将不能像预期那样工作。在这种情况下，error 被映射到函数的返回值，而不是异常，这仍然会导致 panic
+	   使用 func(...) (Value, error) 代替，并且忽略Value
 
-      'this' 的值将永远被设置为 'undefined'
+	   'this' 的值将永远被设置为 'undefined'
 
-   # map 类型
-      一个 ES map 可以被导出到 Go map 类型中。如果任何导出的键值是非哈希的，操作就会产生 panic（就像 reflect.Value.SetMapIndex() 那样）
-      将一个 ES Set 导出到一个 map 类型，导致 map 被填充了（元素）->（零值）键/值对。如果有任何值是非哈希的，操作就会产生 panic（就像reflect.Value.SetMapIndex()那样）
-      Symbol.iterator 被忽略了，任何其他对象都会用自己的可枚举的非符号属性来填充 map
+	# map 类型
+	   一个 ES map 可以被导出到 Go map 类型中。如果任何导出的键值是非哈希的，操作就会产生 panic（就像 reflect.Value.SetMapIndex() 那样）
+	   将一个 ES Set 导出到一个 map 类型，导致 map 被填充了（元素）->（零值）键/值对。如果有任何值是非哈希的，操作就会产生 panic（就像reflect.Value.SetMapIndex()那样）
+	   Symbol.iterator 被忽略了，任何其他对象都会用自己的可枚举的非符号属性来填充 map
 
-   # slice 类型
-      将一个 ES Set 导出到一个 slice 类型中，会导致其元素被导出
-      将任何实现可迭代协议的对象导出为 slice 类型，都将导致 slice 被迭代的结果所填充
-      数组被视为可迭代（即覆盖 Symbol.iterator 会影响结果）
-      如果一个对象有 length 属性，并且不是一个函数，那么它就被当作数组一样处理。产生的 slice 将包含 obj[0], ... obj[length-1]
-      对于任何其他对象，将返回一个错误
+	# slice 类型
+	   将一个 ES Set 导出到一个 slice 类型中，会导致其元素被导出
+	   将任何实现可迭代协议的对象导出为 slice 类型，都将导致 slice 被迭代的结果所填充
+	   数组被视为可迭代（即覆盖 Symbol.iterator 会影响结果）
+	   如果一个对象有 length 属性，并且不是一个函数，那么它就被当作数组一样处理。产生的 slice 将包含 obj[0], ... obj[length-1]
+	   对于任何其他对象，将返回一个错误
 
-   # 数组类型
-      只要长度匹配，任何可以导出为 slice 类型的东西也可以导出为数组类型。如果不匹配，就会返回一个错误
+	# 数组类型
+	   只要长度匹配，任何可以导出为 slice 类型的东西也可以导出为数组类型。如果不匹配，就会返回一个错误
 
-   # Proxy
-      代理对象的处理方式与从 ES 代码中访问它们的属性（如 length 或 Symbol.iterator）相同。这意味着将它们导出到 Slice 类型中可以工作，
-      但是将代理的 map 导出到 map 类型中不会同时导出其内容，因为代理不被认可为 map。这也适用于代理的 Set
+	# Proxy
+	   代理对象的处理方式与从 ES 代码中访问它们的属性（如 length 或 Symbol.iterator）相同。这意味着将它们导出到 Slice 类型中可以工作，
+	   但是将代理的 map 导出到 map 类型中不会同时导出其内容，因为代理不被认可为 map。这也适用于代理的 Set
 */
 func (r *Runtime) ExportTo(v Value, target any) error {
 	tval := reflect.ValueOf(target)
