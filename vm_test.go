@@ -186,7 +186,7 @@ fib(35);
 		b.Fatal(err)
 	}
 
-	c := newCompiler()
+	c := newCompiler(false)
 	c.compile(prg, false, true, nil)
 	c.p.dumpCode(b.Logf)
 

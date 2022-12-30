@@ -85,6 +85,8 @@ type compiler struct {
 	ctxVM  *vm // VM in which an eval() code is compiled
 
 	codeScratchpad []instruction
+
+	debug bool
 }
 
 type binding struct {
@@ -366,6 +368,9 @@ func (c *compiler) newScope() {
 		prg:    c.p,
 		outer:  c.scope,
 		strict: strict,
+
+		dynLookup: c.debug,
+		dynamic:   c.debug,
 	}
 }
 
@@ -381,9 +386,10 @@ func (c *compiler) popScope() {
 	c.scope = c.scope.outer
 }
 
-func newCompiler() *compiler {
+func newCompiler(debug bool) *compiler {
 	c := &compiler{
-		p: &Program{},
+		p:     &Program{},
+		debug: debug,
 	}
 
 	c.enumGetExpr.init(c, file.Idx(0))

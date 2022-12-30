@@ -52,6 +52,7 @@ func (c *compiler) compileStatement(v ast.Statement, needResult bool) {
 	case *ast.WithStatement:
 		c.compileWithStatement(v, needResult)
 	case *ast.DebuggerStatement:
+		c.compileDebuggerStatement()
 	default:
 		c.assert(false, int(v.Idx0())-1, "Unknown statement type: %T", v)
 		panic("unreachable")
@@ -1120,6 +1121,10 @@ func (c *compiler) compileSwitchStatement(v *ast.SwitchStatement, needResult boo
 		c.popScope()
 	}
 	c.leaveBlock()
+}
+
+func (c *compiler) compileDebuggerStatement() {
+	c.emit(debugger)
 }
 
 func (c *compiler) compileClassDeclaration(v *ast.ClassDeclaration) {
