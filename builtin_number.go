@@ -1,8 +1,9 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/ftoa"
 	"math"
+
+	"github.com/rarnu/goscript/ftoa"
 )
 
 func (r *Runtime) numberproto_valueOf(call FunctionCall) Value {

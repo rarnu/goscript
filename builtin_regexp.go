@@ -58,7 +58,7 @@ func writeHex4(b *strings.Builder, i int) {
 	b.WriteByte(hex[i&0xF])
 }
 
-// convertRegexpToUnicode 将 \uXXXX\uXXXX 形式的字符串转换为 unicode 字符
+// Convert any valid surrogate pairs in the form of \uXXXX\uXXXX to unicode characters
 func convertRegexpToUnicode(patternStr string) string {
 	var sb strings.Builder
 	pos := 0
@@ -94,7 +94,7 @@ func convertRegexpToUnicode(patternStr string) string {
 	return patternStr
 }
 
-// convertRegexpToUtf16 将扩展的 unicode 字符转换成 UTF-16(\uXXXX\uXXXX) 的形式
+// Convert any extended unicode characters to UTF-16 in the form of \uXXXX\uXXXX
 func convertRegexpToUtf16(patternStr string) string {
 	var sb strings.Builder
 	pos := 0
@@ -123,7 +123,7 @@ func convertRegexpToUtf16(patternStr string) string {
 	return patternStr
 }
 
-// escapeInvalidUtf16 将破损的 UTF-16 代码转换为 \uXXXX
+// convert any broken UTF-16 surrogate pairs to \uXXXX
 func escapeInvalidUtf16(s valueString) string {
 	if imported, ok := s.(*importedString); ok {
 		return imported.s
@@ -151,6 +151,7 @@ func escapeInvalidUtf16(s valueString) string {
 					var err error
 					c, size, err = hrd.ReadRune()
 					if err != nil {
+						// will not happen
 						panic(fmt.Errorf("error while reading string head %q, pos: %d: %w", s.String(), pos, err))
 					}
 					sb.WriteRune(c)
@@ -300,8 +301,7 @@ func (r *Runtime) builtin_newRegExp(args []Value, proto *Object) *Object {
 func (r *Runtime) newRegExp(patternVal, flagsVal Value, proto *Object) *regexpObject {
 	var pattern valueString
 	var flags string
-	if isRegexp(patternVal) {
-		// 这可能有副作用，所以无论如何都要调用它
+	if isRegexp(patternVal) { // this may have side effects so need to call it anyway
 		if obj, ok := patternVal.(*Object); ok {
 			if rx, ok := obj.self.(*regexpObject); ok {
 				if flagsVal == nil || flagsVal == _undefined {
@@ -806,6 +806,7 @@ type regExpStringIterObject struct {
 	global, fullUnicode, done bool
 }
 
+// RegExpExec as defined in 21.2.5.2.1
 func regExpExec(r *Object, s valueString) Value {
 	exec := r.self.getStr("exec", nil)
 	if execObject, ok := exec.(*Object); ok {
@@ -875,7 +876,7 @@ func (r *Runtime) regexpproto_stdSplitterGeneric(splitter *Object, s valueString
 	}
 	size := s.length()
 	p := 0
-	execFn := toMethod(splitter.ToObject(r).self.getStr("exec", nil))
+	execFn := toMethod(splitter.ToObject(r).self.getStr("exec", nil)) // must be non-nil
 
 	if size == 0 {
 		if r.regExpExec(execFn, splitter, s) == _null {
@@ -967,6 +968,7 @@ func (r *Runtime) regexpproto_stdSplitter(call FunctionCall) Value {
 		flags := nilSafe(rxObj.self.getStr("flags", nil)).toString()
 		flagsStr := flags.String()
 
+		// Add 'y' flag if missing
 		if !strings.Contains(flagsStr, "y") {
 			flags = flags.concat(asciiString("y"))
 		}
@@ -977,7 +979,7 @@ func (r *Runtime) regexpproto_stdSplitter(call FunctionCall) Value {
 		}
 	}
 
-	pattern := search.pattern
+	pattern := search.pattern // toUint32() may recompile the pattern, but we still need to use the original
 	limit := -1
 	if limitValue != _undefined {
 		limit = int(toUint32(limitValue))
@@ -1002,6 +1004,7 @@ func (r *Runtime) regexpproto_stdSplitter(call FunctionCall) Value {
 
 	for _, match := range result {
 		if match[0] == match[1] {
+			// FIXME Ugh, this is a hack
 			if match[0] == 0 || match[0] == targetLength {
 				continue
 			}
@@ -1056,7 +1059,7 @@ func (r *Runtime) regexpproto_stdReplacerGeneric(rxObj *Object, s, replaceStr va
 	if nilSafe(rxObj.self.getStr("global", nil)).ToBoolean() {
 		results = r.getGlobalRegexpMatches(rxObj, s)
 	} else {
-		execFn := toMethod(rxObj.self.getStr("exec", nil))
+		execFn := toMethod(rxObj.self.getStr("exec", nil)) // must be non-nil
 		result := r.regExpExec(execFn, rxObj, s)
 		if result != _null {
 			results = append(results, result)

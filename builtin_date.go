@@ -14,7 +14,7 @@ func (r *Runtime) makeDate(args []Value, utc bool) (t time.Time, valid bool) {
 	case len(args) == 0:
 		t = r.now()
 		valid = true
-	default:
+	default: // one argument
 		if o, ok := args[0].(*Object); ok {
 			if d, ok := o.self.(*dateObject); ok {
 				t = d.time()
@@ -130,6 +130,7 @@ func (r *Runtime) dateproto_toISOString(call FunctionCall) Value {
 			if year >= -9999 && year <= 9999 {
 				return asciiString(utc.Format(isoDateTimeLayout))
 			}
+			// extended year
 			return asciiString(fmt.Sprintf("%+06d-", year) + utc.Format(isoDateTimeLayout[5:]))
 		} else {
 			panic(r.newError(r.global.RangeError, "Invalid time value"))
@@ -474,9 +475,14 @@ func (r *Runtime) dateproto_setTime(call FunctionCall) Value {
 	panic(r.NewTypeError("Method Date.prototype.setTime is called on incompatible receiver"))
 }
 
+// _norm returns nhi, nlo such that
+//
+//	hi * base + lo == nhi * base + nlo
+//	0 <= nlo < base
 func _norm(hi, lo, base int64) (nhi, nlo int64, ok bool) {
 	if lo < 0 {
 		if hi == math.MinInt64 && lo <= -base {
+			// underflow
 			ok = false
 			return
 		}
@@ -486,6 +492,7 @@ func _norm(hi, lo, base int64) (nhi, nlo int64, ok bool) {
 	}
 	if lo >= base {
 		if hi == math.MaxInt64 {
+			// overflow
 			ok = false
 			return
 		}
@@ -501,6 +508,8 @@ func mkTime(year, m, day, hour, min, sec, nsec int64, loc *time.Location) (t tim
 	if !ok {
 		return
 	}
+
+	// Normalise nsec, sec, min, hour, overflowing into day.
 	sec, nsec, ok = _norm(sec, nsec, 1e9)
 	if !ok {
 		return

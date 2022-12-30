@@ -28,215 +28,240 @@ func (s regexpParseError) Error() string {
 	return s.err
 }
 
-type regExpParser struct {
-	str        string
-	length     int
-	chr        rune // 当前字符
-	chrOffset  int  // 当前字符的偏移量(offset)
-	offset     int  // 紧随当前字符的偏移量，大于等于 1
-	err        error
+type _RegExp_parser struct {
+	str    string
+	length int
+
+	chr       rune // The current character
+	chrOffset int  // The offset of current character
+	offset    int  // The offset after current character (may be greater than 1)
+
+	err error
+
 	goRegexp   strings.Builder
 	passOffset int
 }
 
-// TransformRegExp 将一个 JavaScript 的正则表达式转换为 Go 的正则
-// re2 (Go) 不能进行回溯，因此遇到回看，如 (?=) (?!) 或 (\1, \2, ...) 将报错
-// re2 (Go) 对 \s 有不同的定义： [\t\n\f\r ]
-// 另外，JavaScript 还包含了额外的 \v, Unicode 的分割符和空格等
+// TransformRegExp transforms a JavaScript pattern into  a Go "regexp" pattern.
+//
+// re2 (Go) cannot do backtracking, so the presence of a lookahead (?=) (?!) or
+// backreference (\1, \2, ...) will cause an error.
+//
+// re2 (Go) has a different definition for \s: [\t\n\f\r ].
+// The JavaScript definition, on the other hand, also includes \v, Unicode "Separator, Space", etc.
+//
+// If the pattern is valid, but incompatible (contains a lookahead or backreference),
+// then this function returns an empty string an error of type RegexpErrorIncompatible.
+//
+// If the pattern is invalid (not valid even in JavaScript), then this function
+// returns an empty string and a generic error.
 func TransformRegExp(pattern string) (transformed string, err error) {
+
 	if pattern == "" {
 		return "", nil
 	}
-	par := regExpParser{str: pattern, length: len(pattern)}
-	err = par.parse()
+
+	parser := _RegExp_parser{
+		str:    pattern,
+		length: len(pattern),
+	}
+	err = parser.parse()
 	if err != nil {
 		return "", err
 	}
-	return par.ResultString(), nil
+
+	return parser.ResultString(), nil
 }
 
-func (r *regExpParser) ResultString() string {
-	if r.passOffset != -1 {
-		return r.str[:r.passOffset]
+func (self *_RegExp_parser) ResultString() string {
+	if self.passOffset != -1 {
+		return self.str[:self.passOffset]
 	}
-	return r.goRegexp.String()
+	return self.goRegexp.String()
 }
 
-func (r *regExpParser) parse() (err error) {
-	r.read() // 读取第一个字符
-	r.scan()
-	return r.err
+func (self *_RegExp_parser) parse() (err error) {
+	self.read() // Pull in the first character
+	self.scan()
+	return self.err
 }
 
-func (r *regExpParser) read() {
-	if r.offset < r.length {
-		r.chrOffset = r.offset
-		chr, width := rune(r.str[r.offset]), 1
-		if chr >= utf8.RuneSelf {
-			// 不是 ASCII 字符
-			chr, width = utf8.DecodeRuneInString(r.str[r.offset:])
+func (self *_RegExp_parser) read() {
+	if self.offset < self.length {
+		self.chrOffset = self.offset
+		chr, width := rune(self.str[self.offset]), 1
+		if chr >= utf8.RuneSelf { // !ASCII
+			chr, width = utf8.DecodeRuneInString(self.str[self.offset:])
 			if chr == utf8.RuneError && width == 1 {
-				r.error(true, "Invalid UTF-8 character")
+				self.error(true, "Invalid UTF-8 character")
 				return
 			}
 		}
-		r.offset += width
-		r.chr = chr
+		self.offset += width
+		self.chr = chr
 	} else {
-		r.chrOffset = r.length
-		r.chr = -1 // 读到末尾了
+		self.chrOffset = self.length
+		self.chr = -1 // EOF
 	}
 }
 
-func (r *regExpParser) stopPassing() {
-	r.goRegexp.Grow(3 * len(r.str) / 2)
-	r.goRegexp.WriteString(r.str[:r.passOffset])
-	r.passOffset = -1
+func (self *_RegExp_parser) stopPassing() {
+	self.goRegexp.Grow(3 * len(self.str) / 2)
+	self.goRegexp.WriteString(self.str[:self.passOffset])
+	self.passOffset = -1
 }
 
-func (r *regExpParser) write(p []byte) {
-	if r.passOffset != -1 {
-		r.stopPassing()
+func (self *_RegExp_parser) write(p []byte) {
+	if self.passOffset != -1 {
+		self.stopPassing()
 	}
-	r.goRegexp.Write(p)
+	self.goRegexp.Write(p)
 }
 
-func (r *regExpParser) writeByte(b byte) {
-	if r.passOffset != -1 {
-		r.stopPassing()
+func (self *_RegExp_parser) writeByte(b byte) {
+	if self.passOffset != -1 {
+		self.stopPassing()
 	}
-	r.goRegexp.WriteByte(b)
+	self.goRegexp.WriteByte(b)
 }
 
-func (r *regExpParser) writeString(s string) {
-	if r.passOffset != -1 {
-		r.stopPassing()
+func (self *_RegExp_parser) writeString(s string) {
+	if self.passOffset != -1 {
+		self.stopPassing()
 	}
-	r.goRegexp.WriteString(s)
+	self.goRegexp.WriteString(s)
 }
 
-func (r *regExpParser) scan() {
-	for r.chr != -1 {
-		switch r.chr {
+func (self *_RegExp_parser) scan() {
+	for self.chr != -1 {
+		switch self.chr {
 		case '\\':
-			r.read()
-			r.scanEscape(false)
+			self.read()
+			self.scanEscape(false)
 		case '(':
-			r.pass()
-			r.scanGroup()
+			self.pass()
+			self.scanGroup()
 		case '[':
-			r.scanBracket()
+			self.scanBracket()
 		case ')':
-			r.error(true, "Unmatched ')'")
+			self.error(true, "Unmatched ')'")
 			return
 		case '.':
-			r.writeString(Re2Dot)
-			r.read()
+			self.writeString(Re2Dot)
+			self.read()
 		default:
-			r.pass()
+			self.pass()
 		}
 	}
 }
 
-func (r *regExpParser) scanGroup() {
-	str := r.str[r.chrOffset:]
-	if len(str) > 1 {
-		// 此处可能出现 (?= 或 (?!
+// (...)
+func (self *_RegExp_parser) scanGroup() {
+	str := self.str[self.chrOffset:]
+	if len(str) > 1 { // A possibility of (?= or (?!
 		if str[0] == '?' {
 			ch := str[1]
 			switch {
 			case ch == '=' || ch == '!':
-				r.error(false, "re2: Invalid (%s) <lookahead>", r.str[r.chrOffset:r.chrOffset+2])
+				self.error(false, "re2: Invalid (%s) <lookahead>", self.str[self.chrOffset:self.chrOffset+2])
 				return
 			case ch == '<':
-				r.error(false, "re2: Invalid (%s) <lookbehind>", r.str[r.chrOffset:r.chrOffset+2])
+				self.error(false, "re2: Invalid (%s) <lookbehind>", self.str[self.chrOffset:self.chrOffset+2])
 				return
 			case ch != ':':
-				r.error(true, "Invalid group")
+				self.error(true, "Invalid group")
 				return
 			}
 		}
 	}
-	for r.chr != -1 && r.chr != ')' {
-		switch r.chr {
+	for self.chr != -1 && self.chr != ')' {
+		switch self.chr {
 		case '\\':
-			r.read()
-			r.scanEscape(false)
+			self.read()
+			self.scanEscape(false)
 		case '(':
-			r.pass()
-			r.scanGroup()
+			self.pass()
+			self.scanGroup()
 		case '[':
-			r.scanBracket()
+			self.scanBracket()
 		case '.':
-			r.writeString(Re2Dot)
-			r.read()
+			self.writeString(Re2Dot)
+			self.read()
 		default:
-			r.pass()
+			self.pass()
 			continue
 		}
 	}
-	if r.chr != ')' {
-		r.error(true, "Unterminated group")
+	if self.chr != ')' {
+		self.error(true, "Unterminated group")
 		return
 	}
-	r.pass()
+	self.pass()
 }
 
-func (r *regExpParser) scanBracket() {
-	str := r.str[r.chrOffset:]
+// [...]
+func (self *_RegExp_parser) scanBracket() {
+	str := self.str[self.chrOffset:]
 	if strings.HasPrefix(str, "[]") {
-		r.writeString("[^\u0000-\U0001FFFF]")
-		r.offset += 1
-		r.read()
+		// [] -- Empty character class
+		self.writeString("[^\u0000-\U0001FFFF]")
+		self.offset += 1
+		self.read()
 		return
 	}
+
 	if strings.HasPrefix(str, "[^]") {
-		r.writeString("[\u0000-\U0001FFFF]")
-		r.offset += 2
-		r.read()
+		self.writeString("[\u0000-\U0001FFFF]")
+		self.offset += 2
+		self.read()
 		return
 	}
-	r.pass()
-	for r.chr != -1 {
-		if r.chr == ']' {
+
+	self.pass()
+	for self.chr != -1 {
+		if self.chr == ']' {
 			break
-		} else if r.chr == '\\' {
-			r.read()
-			r.scanEscape(true)
+		} else if self.chr == '\\' {
+			self.read()
+			self.scanEscape(true)
 			continue
 		}
-		r.pass()
+		self.pass()
 	}
-	if r.chr != ']' {
-		r.error(true, "Unterminated character class")
+	if self.chr != ']' {
+		self.error(true, "Unterminated character class")
 		return
 	}
-	r.pass()
+	self.pass()
 }
 
-func (r *regExpParser) scanEscape(inClass bool) {
-	offset := r.chrOffset
+// \...
+func (self *_RegExp_parser) scanEscape(inClass bool) {
+	offset := self.chrOffset
+
 	var length, base uint32
-	switch r.chr {
+	switch self.chr {
+
 	case '0', '1', '2', '3', '4', '5', '6', '7':
 		var value int64
 		size := 0
 		for {
-			digit := int64(digitValue(r.chr))
+			digit := int64(digitValue(self.chr))
 			if digit >= 8 {
-				// 非法的位数
+				// Not a valid digit
 				break
 			}
 			value = value*8 + digit
-			r.read()
+			self.read()
 			size += 1
 		}
-		if size == 1 {
+		if size == 1 { // The number of characters read
 			if value != 0 {
-				r.error(false, "re2: Invalid \\%d <backreference>", value)
+				// An invalid backreference
+				self.error(false, "re2: Invalid \\%d <backreference>", value)
 				return
 			}
-			r.passString(offset-1, r.chrOffset)
+			self.passString(offset-1, self.chrOffset)
 			return
 		}
 		tmp := []byte{'\\', 'x', '0', 0}
@@ -246,22 +271,22 @@ func (r *regExpParser) scanEscape(inClass bool) {
 			tmp = tmp[0:3]
 		}
 		tmp = strconv.AppendInt(tmp, value, 16)
-		r.write(tmp)
+		self.write(tmp)
 		return
 
 	case '8', '9':
-		r.read()
-		r.error(false, "re2: Invalid \\%s <backreference>", r.str[offset:r.chrOffset])
+		self.read()
+		self.error(false, "re2: Invalid \\%s <backreference>", self.str[offset:self.chrOffset])
 		return
 
 	case 'x':
-		r.read()
+		self.read()
 		length, base = 2, 16
 
 	case 'u':
-		r.read()
-		if r.chr == '{' {
-			r.read()
+		self.read()
+		if self.chr == '{' {
+			self.read()
 			length, base = 0, 16
 		} else {
 			length, base = 4, 16
@@ -269,8 +294,8 @@ func (r *regExpParser) scanEscape(inClass bool) {
 
 	case 'b':
 		if inClass {
-			r.write([]byte{'\\', 'x', '0', '8'})
-			r.read()
+			self.write([]byte{'\\', 'x', '0', '8'})
+			self.read()
 			return
 		}
 		fallthrough
@@ -279,26 +304,27 @@ func (r *regExpParser) scanEscape(inClass bool) {
 		fallthrough
 
 	case 'd', 'D', 'w', 'W':
-		// 这里会有问题，因为ECMAScript在 \s,\S 内包含了 \v，但是 re2 不包含
+		// This is slightly broken, because ECMAScript
+		// includes \v in \s, \S, while re2 does not
 		fallthrough
 
 	case '\\':
 		fallthrough
 
 	case 'f', 'n', 'r', 't', 'v':
-		r.passString(offset-1, r.offset)
-		r.read()
+		self.passString(offset-1, self.offset)
+		self.read()
 		return
 
 	case 'c':
-		r.read()
+		self.read()
 		var value int64
-		if 'a' <= r.chr && r.chr <= 'z' {
-			value = int64(r.chr - 'a' + 1)
-		} else if 'A' <= r.chr && r.chr <= 'Z' {
-			value = int64(r.chr - 'A' + 1)
+		if 'a' <= self.chr && self.chr <= 'z' {
+			value = int64(self.chr - 'a' + 1)
+		} else if 'A' <= self.chr && self.chr <= 'Z' {
+			value = int64(self.chr - 'A' + 1)
 		} else {
-			r.writeByte('c')
+			self.writeByte('c')
 			return
 		}
 		tmp := []byte{'\\', 'x', '0', 0}
@@ -308,116 +334,125 @@ func (r *regExpParser) scanEscape(inClass bool) {
 			tmp = tmp[0:3]
 		}
 		tmp = strconv.AppendInt(tmp, value, 16)
-		r.write(tmp)
-		r.read()
+		self.write(tmp)
+		self.read()
 		return
 	case 's':
 		if inClass {
-			r.writeString(WhitespaceChars)
+			self.writeString(WhitespaceChars)
 		} else {
-			r.writeString("[" + WhitespaceChars + "]")
+			self.writeString("[" + WhitespaceChars + "]")
 		}
-		r.read()
+		self.read()
 		return
 	case 'S':
 		if inClass {
-			r.error(false, "S in class")
+			self.error(false, "S in class")
 			return
 		} else {
-			r.writeString("[^" + WhitespaceChars + "]")
+			self.writeString("[^" + WhitespaceChars + "]")
 		}
-		r.read()
+		self.read()
 		return
 	default:
-		if r.chr == '$' || r.chr < utf8.RuneSelf && !isIdentifierPart(r.chr) {
-			r.passString(offset-1, r.offset)
-			r.read()
+		// $ is an identifier character, so we have to have
+		// a special case for it here
+		if self.chr == '$' || self.chr < utf8.RuneSelf && !isIdentifierPart(self.chr) {
+			// A non-identifier character needs escaping
+			self.passString(offset-1, self.offset)
+			self.read()
 			return
 		}
-		r.pass()
+		// Unescape the character for re2
+		self.pass()
 		return
 	}
 
-	valueOffset := r.chrOffset
+	// Otherwise, we're a \u.... or \x...
+	valueOffset := self.chrOffset
 
 	if length > 0 {
 		for length := length; length > 0; length-- {
-			digit := uint32(digitValue(r.chr))
+			digit := uint32(digitValue(self.chr))
 			if digit >= base {
-				// 非法的位数
+				// Not a valid digit
 				goto skip
 			}
-			r.read()
+			self.read()
 		}
 	} else {
-		for r.chr != '}' && r.chr != -1 {
-			digit := uint32(digitValue(r.chr))
+		for self.chr != '}' && self.chr != -1 {
+			digit := uint32(digitValue(self.chr))
 			if digit >= base {
-				// 非法的位数
+				// Not a valid digit
 				goto skip
 			}
-			r.read()
+			self.read()
 		}
 	}
+
 	if length == 4 || length == 0 {
-		r.write([]byte{
+		self.write([]byte{
 			'\\',
 			'x',
 			'{',
 		})
-		r.passString(valueOffset, r.chrOffset)
+		self.passString(valueOffset, self.chrOffset)
 		if length != 0 {
-			r.writeByte('}')
+			self.writeByte('}')
 		}
 	} else if length == 2 {
-		r.passString(offset-1, valueOffset+2)
+		self.passString(offset-1, valueOffset+2)
 	} else {
-		r.error(true, "re2: Illegal branch in scanEscape")
+		// Should never, ever get here...
+		self.error(true, "re2: Illegal branch in scanEscape")
 		return
 	}
+
 	return
+
 skip:
-	r.passString(offset, r.chrOffset)
+	self.passString(offset, self.chrOffset)
 }
 
-func (r *regExpParser) pass() {
-	if r.passOffset == r.chrOffset {
-		r.passOffset = r.offset
+func (self *_RegExp_parser) pass() {
+	if self.passOffset == self.chrOffset {
+		self.passOffset = self.offset
 	} else {
-		if r.passOffset != -1 {
-			r.stopPassing()
+		if self.passOffset != -1 {
+			self.stopPassing()
 		}
-		if r.chr != -1 {
-			r.goRegexp.WriteRune(r.chr)
+		if self.chr != -1 {
+			self.goRegexp.WriteRune(self.chr)
 		}
 	}
-	r.read()
+	self.read()
 }
 
-func (r *regExpParser) passString(start, end int) {
-	if r.passOffset == start {
-		r.passOffset = end
+func (self *_RegExp_parser) passString(start, end int) {
+	if self.passOffset == start {
+		self.passOffset = end
 		return
 	}
-	if r.passOffset != -1 {
-		r.stopPassing()
+	if self.passOffset != -1 {
+		self.stopPassing()
 	}
-	r.goRegexp.WriteString(r.str[start:end])
+	self.goRegexp.WriteString(self.str[start:end])
 }
 
-func (r *regExpParser) error(fatal bool, msg string, msgValues ...any) {
-	if r.err != nil {
+func (self *_RegExp_parser) error(fatal bool, msg string, msgValues ...interface{}) {
+	if self.err != nil {
 		return
 	}
 	e := regexpParseError{
-		offset: r.offset,
+		offset: self.offset,
 		err:    fmt.Sprintf(msg, msgValues...),
 	}
 	if fatal {
-		r.err = RegexpSyntaxError{e}
+		self.err = RegexpSyntaxError{e}
 	} else {
-		r.err = RegexpErrorIncompatible{e}
+		self.err = RegexpErrorIncompatible{e}
 	}
-	r.offset = r.length
-	r.chr = -1
+	self.offset = self.length
+	self.chr = -1
 }

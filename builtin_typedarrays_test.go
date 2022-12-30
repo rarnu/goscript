@@ -4,6 +4,17 @@ import (
 	"testing"
 )
 
+/*
+func TestArrayBufferNew(t *testing.T) {
+	const SCRIPT = `
+	var b = new ArrayBuffer(16);
+	b.byteLength;
+	`
+
+	testScript(SCRIPT, intToValue(16), t)
+}
+*/
+
 func TestArrayBufferSetUint32(t *testing.T) {
 	vm := New()
 	b := vm._newArrayBuffer(vm.global.ArrayBufferPrototype, nil)

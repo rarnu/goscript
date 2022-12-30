@@ -105,7 +105,7 @@ func TestDynamicObject(t *testing.T) {
 		m: make(map[string]Value),
 	}
 	o := vm.NewDynamicObject(dynObj)
-	_ = vm.Set("o", o)
+	vm.Set("o", o)
 	vm.testScriptWithTestLibX(`
 	assert(o instanceof Object, "instanceof Object");
 	assert(o === o, "self equality");
@@ -144,7 +144,7 @@ func TestDynamicObjectCustomProto(t *testing.T) {
 		m: m,
 	}
 	o := vm.NewDynamicObject(dynObj)
-	_ = vm.Set("o", o)
+	vm.Set("o", o)
 	vm.testScriptWithTestLib(`
 	var proto = {
 		valueOf: function() {
@@ -170,7 +170,7 @@ func TestDynamicArray(t *testing.T) {
 		r: vm,
 	}
 	a := vm.NewDynamicArray(dynObj)
-	_ = vm.Set("a", a)
+	vm.Set("a", a)
 	vm.testScriptWithTestLibX(`
 	assert(a instanceof Array, "instanceof Array");
 	assert(a instanceof Object, "instanceof Object");
@@ -293,7 +293,7 @@ func TestSharedDynamicObject(t *testing.T) {
 	ch := make(chan error, 1)
 	go func() {
 		vm := New()
-		_ = vm.Set("o", o)
+		vm.Set("o", o)
 		_, err := vm.RunString(`
 			for (let i = 0; i < 10000; i++) {
 				o[i] = i;
@@ -302,7 +302,7 @@ func TestSharedDynamicObject(t *testing.T) {
 		ch <- err
 	}()
 	vm := New()
-	_ = vm.Set("o", o)
+	vm.Set("o", o)
 	_, err := vm.RunString(`
 			for (let i = 0; i < 10000; i++) {
 				o[i] = i+1;
@@ -394,7 +394,7 @@ func TestSharedDynamicArray(t *testing.T) {
 	ch := make(chan error, 1)
 	go func() {
 		vm := New()
-		_ = vm.Set("o", o)
+		vm.Set("o", o)
 		_, err := vm.RunString(`
 			for (let i = 0; i < 10000; i++) {
 				o[i] = i;
@@ -403,7 +403,7 @@ func TestSharedDynamicArray(t *testing.T) {
 		ch <- err
 	}()
 	vm := New()
-	_ = vm.Set("o", o)
+	vm.Set("o", o)
 	_, err := vm.RunString(`
 			for (let i = 0; i < 10000; i++) {
 				o[i] = i+1;

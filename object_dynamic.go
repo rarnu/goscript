@@ -2,38 +2,62 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"reflect"
 	"strconv"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 /*
-DynamicObject 是一个接口，代表一个动态对象的处理程序。这样的对象可以使用 Runtime.NewDynamicObject() 方法创建
-请注意，Runtime.ToValue() 对 DynamicObject 没有任何特殊处理。创建一个动态对象的唯一方法是使用 Runtime.NewDynamicObject() 方法
-这样做是故意的，以避免在这个接口改变时出现不预期且无声的代码中断
+DynamicObject is an interface representing a handler for a dynamic Object. Such an object can be created
+using the Runtime.NewDynamicObject() method.
+
+Note that Runtime.ToValue() does not have any special treatment for DynamicObject. The only way to create
+a dynamic object is by using the Runtime.NewDynamicObject() method. This is done deliberately to avoid
+silent code breaks when this interface changes.
 */
 type DynamicObject interface {
-	Get(key string) Value           // 为 key 获取一个属性值。如果该属性不存在，则返回 nil
-	Set(key string, val Value) bool // 为 key 设置一个属性值。如果成功返回 true，否则返回 false
-	Has(key string) bool            // 当指定 key 的属性存在时，返回 true
-	Delete(key string) bool         // 删除以 key 为名的属性，成功时返回 true（包括不存在的属性）
-	Keys() []string                 // 返回一个所有现有 key 的列表。没有重复检查，也没有确定顺序是否符合 https://262.ecma-international.org/#sec-ordinaryownpropertykeys。
+	// Get a property value for the key. May return nil if the property does not exist.
+	Get(key string) Value
+	// Set a property value for the key. Return true if success, false otherwise.
+	Set(key string, val Value) bool
+	// Has should return true if and only if the property exists.
+	Has(key string) bool
+	// Delete the property for the key. Returns true on success (note, that includes missing property).
+	Delete(key string) bool
+	// Keys returns a list of all existing property keys. There are no checks for duplicates or to make sure
+	// that the order conforms to https://262.ecma-international.org/#sec-ordinaryownpropertykeys
+	Keys() []string
 }
 
 /*
-DynamicArray 是一个接口，代表一个动态数组对象的处理程序。这样的对象可以用 Runtime.NewDynamicArray() 方法创建
-任何可以解析为 int 值的整型属性 key 或字符串属性 key（包括负数）都被视为索引，并传递给 DynamicArray 的捕获方法
-注意这与普通的 ECMAScript 数组不同，后者只支持 2^32-1 以内的正数索引
-动态数组不能是稀疏的，即 hasOwnProperty(num) 对于 num >= 0 && num < Len()，将返回 true
-删除这样的属性等同于将其设置为 undefined, 这产生了一个轻微的特殊性，因为 hasOwnProperty() 即使在删除之后，仍然会返回 true
-请注意，Runtime.ToValue() 对 DynamicArray 没有任何特殊处理。创建一个动态数组的唯一方法是使用 Runtime.NewDynamicArray()方法
-这样做是故意的，以避免在这个接口改变时出现不预期且无声的代码中断
+DynamicArray is an interface representing a handler for a dynamic array Object. Such an object can be created
+using the Runtime.NewDynamicArray() method.
+
+Any integer property key or a string property key that can be parsed into an int value (including negative
+ones) is treated as an index and passed to the trap methods of the DynamicArray. Note this is different from
+the regular ECMAScript arrays which only support positive indexes up to 2^32-1.
+
+DynamicArray cannot be sparse, i.e. hasOwnProperty(num) will return true for num >= 0 && num < Len(). Deleting
+such a property is equivalent to setting it to undefined. Note that this creates a slight peculiarity because
+hasOwnProperty() will still return true, even after deletion.
+
+Note that Runtime.ToValue() does not have any special treatment for DynamicArray. The only way to create
+a dynamic array is by using the Runtime.NewDynamicArray() method. This is done deliberately to avoid
+silent code breaks when this interface changes.
 */
 type DynamicArray interface {
-	Len() int                    // 返回当前数组的长度
-	Get(idx int) Value           // 在索引 idx 处获取一个 item。idx 可以是任何整数，可以是负数，也可以是超过当前长度的
-	Set(idx int, val Value) bool // 在索引 idx 处设置一个 item。idx 可以是任何整数，可以是负数，也可以超过当前的长度。当它超出长度时，预期的行为是数组的长度会增加以容纳该 item。数组中的新增部分的所有元素将会被预置为零值
-	SetLen(int) bool             // 变更数组的长度，如果长度增加，数组中的新增部分的所有元素将会被预置为零
+	// Len returns the current array length.
+	Len() int
+	// Get an item at index idx. Note that idx may be any integer, negative or beyond the current length.
+	Get(idx int) Value
+	// Set an item at index idx. Note that idx may be any integer, negative or beyond the current length.
+	// The expected behaviour when it's beyond length is that the array's length is increased to accommodate
+	// the item. All elements in the 'new' section of the array should be zeroed.
+	Set(idx int, val Value) bool
+	// SetLen is called when the array's 'length' property is changed. If the length is increased all elements in the
+	// 'new' section of the array should be zeroed.
+	SetLen(int) bool
 }
 
 type baseDynamicObject struct {
@@ -52,15 +76,25 @@ type dynamicArray struct {
 }
 
 /*
-NewDynamicObject 创建一个由 DynamicObject 处理程序支持的对象
-这个对象的特性如下：
-1.它的所有属性都是可写、可列举和可配置的数据属性。任何试图定义一个不符合这一点的属性的行为都会失败
-2.它总是可扩展的，不能使其成为不可扩展的。尝试执行 Object.preventExtensions() 将会失败
-3.它的原型最初被设置为 Object.prototype，但可以使用常规机制（Go 中的 Object.SetPrototype() 或 JS 中的 Object.setPrototypeOf() ）来改变
-4.它不能有自己的符号属性，但是它的原型可以。例如，如果你需要一个迭代器支持，你可以创建一个普通的对象，在该对象上设置 Symbol.iterator，然后把它作为一个原型
-Export() 返回原始的 DynamicObject
+NewDynamicObject creates an Object backed by the provided DynamicObject handler.
 
-这种机制类似于 ECMAScript Proxy，但是因为所有的属性都是可枚举的，而且对象总是可扩展的，所以不需要进行不变性检查，这就不需要有一个目标对象了，而且效率更高
+All properties of this Object are Writable, Enumerable and Configurable data properties. Any attempt to define
+a property that does not conform to this will fail.
+
+The Object is always extensible and cannot be made non-extensible. Object.preventExtensions() will fail.
+
+The Object's prototype is initially set to Object.prototype, but can be changed using regular mechanisms
+(Object.SetPrototype() in Go or Object.setPrototypeOf() in JS).
+
+The Object cannot have own Symbol properties, however its prototype can. If you need an iterator support for
+example, you could create a regular object, set Symbol.iterator on that object and then use it as a
+prototype. See TestDynamicObjectCustomProto for more details.
+
+Export() returns the original DynamicObject.
+
+This mechanism is similar to ECMAScript Proxy, however because all properties are enumerable and the object
+is always extensible there is no need for invariant checks which removes the need to have a target object and
+makes it a lot more efficient.
 */
 func (r *Runtime) NewDynamicObject(d DynamicObject) *Object {
 	v := &Object{runtime: r}
@@ -76,8 +110,8 @@ func (r *Runtime) NewDynamicObject(d DynamicObject) *Object {
 }
 
 /*
-NewSharedDynamicObject 与 Runtime.NewDynamicObject 类似，但是产生的 Object 可以在多个 Runtime 之间共享
-该对象的原型为空。提供的 DynamicObject 必须是协程安全的
+NewSharedDynamicObject is similar to Runtime.NewDynamicObject but the resulting Object can be shared across multiple
+Runtimes. The Object's prototype will be null. The provided DynamicObject must be goroutine-safe.
 */
 func NewSharedDynamicObject(d DynamicObject) *Object {
 	v := &Object{}
@@ -92,11 +126,14 @@ func NewSharedDynamicObject(d DynamicObject) *Object {
 }
 
 /*
-NewDynamicArray 创建一个由 DynamicArray 处理程序支持的数组对象
-它与 NewDynamicObject 相似，区别在于：
-1.该对象是一个数组（即 Array.isArray() 将返回 true，并且它将有长度属性）
-2.对象的原型将被初始设置为 Array.prototype
-3.除了长度，该对象不能有任何自己的字符串属性
+NewDynamicArray creates an array Object backed by the provided DynamicArray handler.
+It is similar to NewDynamicObject, the differences are:
+
+- the Object is an array (i.e. Array.isArray() will return true and it will have the length property).
+
+- the prototype will be initially set to Array.prototype.
+
+- the Object cannot have any own string properties except for the 'length'.
 */
 func (r *Runtime) NewDynamicArray(a DynamicArray) *Object {
 	v := &Object{runtime: r}
@@ -112,8 +149,9 @@ func (r *Runtime) NewDynamicArray(a DynamicArray) *Object {
 }
 
 /*
-NewSharedDynamicArray 与 Runtime.NewDynamicArray 类似，但产生的 Object 可以在多个 Runtimes 之间共享
-该对象的原型为空。如果你需要对它运行 Array 的方法，请使用 Array.prototype.[...].call(a, ...)，提供的 DynamicArray 必须是协程安全的
+NewSharedDynamicArray is similar to Runtime.NewDynamicArray but the resulting Object can be shared across multiple
+Runtimes. The Object's prototype will be null. If you need to run Array's methods on it, use Array.prototype.[...].call(a, ...).
+The provided DynamicArray must be goroutine-safe.
 */
 func NewSharedDynamicArray(a DynamicArray) *Object {
 	v := &Object{}
@@ -216,6 +254,7 @@ func (o *dynamicObject) setOwnStr(p unistring.String, v Value, throw bool) bool 
 	prop := p.String()
 	if !o.d.Has(prop) {
 		if proto := o.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, handled := proto.self.setForeignStr(p, v, o.val, throw); handled {
 				return res
 			}
@@ -228,6 +267,7 @@ func (o *dynamicObject) setOwnIdx(p valueInt, v Value, throw bool) bool {
 	prop := p.String()
 	if !o.d.Has(prop) {
 		if proto := o.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, handled := proto.self.setForeignIdx(p, v, o.val, throw); handled {
 				return res
 			}
@@ -238,6 +278,7 @@ func (o *dynamicObject) setOwnIdx(p valueInt, v Value, throw bool) bool {
 
 func (o *baseDynamicObject) setOwnSym(s *Symbol, v Value, throw bool) bool {
 	if proto := o.prototype; proto != nil {
+		// we know it's foreign because prototype loops are not allowed
 		if res, handled := proto.self.setForeignSym(s, v, o.val, throw); handled {
 			return res
 		}
@@ -406,6 +447,10 @@ func (o *baseDynamicObject) assertCallable() (call func(FunctionCall) Value, ok 
 	return nil, false
 }
 
+func (o *baseDynamicObject) vmCall(vm *vm, n int) {
+	panic(vm.r.NewTypeError("Dynamic object is not callable"))
+}
+
 func (*baseDynamicObject) assertConstructor() func(args []Value, newTarget *Object) *Object {
 	return nil
 }
@@ -467,7 +512,7 @@ func (o *dynamicObject) iterateKeys() iterNextFunc {
 	return o.iterateStringKeys()
 }
 
-func (o *dynamicObject) export(ctx *objectExportCtx) any {
+func (o *dynamicObject) export(ctx *objectExportCtx) interface{} {
 	return o.d
 }
 
@@ -522,6 +567,10 @@ func (o *baseDynamicObject) getPrivateEnv(*privateEnvType, bool) *privateElement
 	panic(newTypeError("Dynamic objects cannot have private elements"))
 }
 
+func (o *baseDynamicObject) typeOf() valueString {
+	return stringObjectC
+}
+
 func (a *dynamicArray) sortLen() int {
 	return a.a.Len()
 }
@@ -533,8 +582,8 @@ func (a *dynamicArray) sortGet(i int) Value {
 func (a *dynamicArray) swap(i int, j int) {
 	x := a.sortGet(i)
 	y := a.sortGet(j)
-	a.a.Set(i, y)
-	a.a.Set(j, x)
+	a.a.Set(int(i), y)
+	a.a.Set(int(j), x)
 }
 
 func (a *dynamicArray) className() string {
@@ -717,7 +766,7 @@ func (a *dynamicArray) iterateKeys() iterNextFunc {
 	return a.iterateStringKeys()
 }
 
-func (a *dynamicArray) export(ctx *objectExportCtx) any {
+func (a *dynamicArray) export(ctx *objectExportCtx) interface{} {
 	return a.a
 }
 

@@ -244,38 +244,90 @@ func (r *Runtime) newNativeProxyHandler(nativeHandler *ProxyTrapConfig) proxyHan
 	return &nativeProxyHandler{handler: nativeHandler}
 }
 
-// ProxyTrapConfig 为实现 Proxy 捕获提供了一个简化友好的 Go API
-// 如果定义了 *Idx 捕获，它就会被调用来处理整数属性键，包括负数。注意，这只包括代表典型整数的字符串属性键（即 "0"、"123"，但不包括 "00"、"01"、"1" 或 "-0"）
-// 为了提高效率，超过 2^53 的整数的字符串不会被检查是否是典型的，即 *Idx 捕获将收到 "9007199254740993" 和 "9007199254740994"
-// 尽管前者在 ECMAScript 中不是典型的表示（Number("9007199254740993") === 9007199254740992）
-// 参考 https://262.ecma-international.org/#sec-canonicalnumericindexstring
-// 如果没有设置 *Idx 捕获，就会使用相应的字符串捕获
+// ProxyTrapConfig provides a simplified Go-friendly API for implementing Proxy traps.
+// If an *Idx trap is defined it gets called for integer property keys, including negative ones. Note that
+// this only includes string property keys that represent a canonical integer
+// (i.e. "0", "123", but not "00", "01", " 1" or "-0").
+// For efficiency strings representing integers exceeding 2^53 are not checked to see if they are canonical,
+// i.e. the *Idx traps will receive "9007199254740993" as well as "9007199254740994", even though the former is not
+// a canonical representation in ECMAScript (Number("9007199254740993") === 9007199254740992).
+// See https://262.ecma-international.org/#sec-canonicalnumericindexstring
+// If an *Idx trap is not set, the corresponding string one is used.
 type ProxyTrapConfig struct {
-	GetPrototypeOf              func(target *Object) (prototype *Object)                                                // 针对 Object.getPrototypeOf, Reflect.getPrototypeOf, __proto__, Object.prototype.isPrototypeOf, instanceof 的捕获
-	SetPrototypeOf              func(target *Object, prototype *Object) (success bool)                                  // 针对 Object.setPrototypeOf, Reflect.setPrototypeOf 的捕获
-	IsExtensible                func(target *Object) (success bool)                                                     // 针对 Object.isExtensible, Reflect.isExtensible 的捕获
-	PreventExtensions           func(target *Object) (success bool)                                                     // 针对 Object.preventExtensions, Reflect.preventExtensions 的捕获
-	GetOwnPropertyDescriptor    func(target *Object, prop string) (propertyDescriptor PropertyDescriptor)               // 针对 Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (字符串属性) 的捕获
-	GetOwnPropertyDescriptorIdx func(target *Object, prop int) (propertyDescriptor PropertyDescriptor)                  // 针对 Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (整型属性) 的捕获
-	GetOwnPropertyDescriptorSym func(target *Object, prop *Symbol) (propertyDescriptor PropertyDescriptor)              // 针对 Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (符号属性) 的捕获
-	DefineProperty              func(target *Object, key string, propertyDescriptor PropertyDescriptor) (success bool)  // 针对 Object.defineProperty, Reflect.defineProperty (字符串属性) 的捕获
-	DefinePropertyIdx           func(target *Object, key int, propertyDescriptor PropertyDescriptor) (success bool)     // 针对 Object.defineProperty, Reflect.defineProperty (整型属性) 的捕获
-	DefinePropertySym           func(target *Object, key *Symbol, propertyDescriptor PropertyDescriptor) (success bool) // 针对 Object.defineProperty, Reflect.defineProperty (符号属性) 的捕获
-	Has                         func(target *Object, property string) (available bool)                                  // 针对 in，with 操作符，Reflect.has (字符串属性) 的捕获
-	HasIdx                      func(target *Object, property int) (available bool)                                     // 针对 in，with 操作符，Reflect.has (整型属性) 的捕获
-	HasSym                      func(target *Object, property *Symbol) (available bool)                                 // 针对 in，with 操作符，Reflect.has (符号属性) 的捕获
-	Get                         func(target *Object, property string, receiver Value) (value Value)                     // 针对读取属性值，Reflect.get (字符串属性) 的捕获
-	GetIdx                      func(target *Object, property int, receiver Value) (value Value)                        // 针对读取属性值，Reflect.get (整型属性) 的捕获
-	GetSym                      func(target *Object, property *Symbol, receiver Value) (value Value)                    // 针对读取属性值，Reflect.get (符号属性) 的捕获
-	Set                         func(target *Object, property string, value Value, receiver Value) (success bool)       // 针对设置属性值，Reflect.set (字符串属性) 的捕获
-	SetIdx                      func(target *Object, property int, value Value, receiver Value) (success bool)          // 针对设置属性值，Reflect.set (整型属性) 的捕获
-	SetSym                      func(target *Object, property *Symbol, value Value, receiver Value) (success bool)      // 针对设置属性值，Reflect.set (符号属性) 的捕获
-	DeleteProperty              func(target *Object, property string) (success bool)                                    // 针对 delete 操作符，Reflect.deleteProperty (字符串属性) 的捕获
-	DeletePropertyIdx           func(target *Object, property int) (success bool)                                       // 针对 delete 操作符，Reflect.deleteProperty (整型属性) 的捕获
-	DeletePropertySym           func(target *Object, property *Symbol) (success bool)                                   // 针对 delete 操作符，Reflect.deleteProperty (符号属性) 的捕获
-	OwnKeys                     func(target *Object) (object *Object)                                                   // 针对 Object.getOwnPropertyNames, Object.getOwnPropertySymbols, Object.keys, Reflect.ownKeys 的捕获
-	Apply                       func(target *Object, this Value, argumentsList []Value) (value Value)                   // 针对函数调用，Function.prototype.apply, Function.prototype.call, Reflect.apply 的捕获
-	Construct                   func(target *Object, argumentsList []Value, newTarget *Object) (value *Object)          // 针对 new 操作符，Reflect.construct 的捕获
+	// A trap for Object.getPrototypeOf, Reflect.getPrototypeOf, __proto__, Object.prototype.isPrototypeOf, instanceof
+	GetPrototypeOf func(target *Object) (prototype *Object)
+
+	// A trap for Object.setPrototypeOf, Reflect.setPrototypeOf
+	SetPrototypeOf func(target *Object, prototype *Object) (success bool)
+
+	// A trap for Object.isExtensible, Reflect.isExtensible
+	IsExtensible func(target *Object) (success bool)
+
+	// A trap for Object.preventExtensions, Reflect.preventExtensions
+	PreventExtensions func(target *Object) (success bool)
+
+	// A trap for Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (string properties)
+	GetOwnPropertyDescriptor func(target *Object, prop string) (propertyDescriptor PropertyDescriptor)
+
+	// A trap for Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (integer properties)
+	GetOwnPropertyDescriptorIdx func(target *Object, prop int) (propertyDescriptor PropertyDescriptor)
+
+	// A trap for Object.getOwnPropertyDescriptor, Reflect.getOwnPropertyDescriptor (Symbol properties)
+	GetOwnPropertyDescriptorSym func(target *Object, prop *Symbol) (propertyDescriptor PropertyDescriptor)
+
+	// A trap for Object.defineProperty, Reflect.defineProperty (string properties)
+	DefineProperty func(target *Object, key string, propertyDescriptor PropertyDescriptor) (success bool)
+
+	// A trap for Object.defineProperty, Reflect.defineProperty (integer properties)
+	DefinePropertyIdx func(target *Object, key int, propertyDescriptor PropertyDescriptor) (success bool)
+
+	// A trap for Object.defineProperty, Reflect.defineProperty (Symbol properties)
+	DefinePropertySym func(target *Object, key *Symbol, propertyDescriptor PropertyDescriptor) (success bool)
+
+	// A trap for the in operator, with operator, Reflect.has (string properties)
+	Has func(target *Object, property string) (available bool)
+
+	// A trap for the in operator, with operator, Reflect.has (integer properties)
+	HasIdx func(target *Object, property int) (available bool)
+
+	// A trap for the in operator, with operator, Reflect.has (Symbol properties)
+	HasSym func(target *Object, property *Symbol) (available bool)
+
+	// A trap for getting property values, Reflect.get (string properties)
+	Get func(target *Object, property string, receiver Value) (value Value)
+
+	// A trap for getting property values, Reflect.get (integer properties)
+	GetIdx func(target *Object, property int, receiver Value) (value Value)
+
+	// A trap for getting property values, Reflect.get (Symbol properties)
+	GetSym func(target *Object, property *Symbol, receiver Value) (value Value)
+
+	// A trap for setting property values, Reflect.set (string properties)
+	Set func(target *Object, property string, value Value, receiver Value) (success bool)
+
+	// A trap for setting property values, Reflect.set (integer properties)
+	SetIdx func(target *Object, property int, value Value, receiver Value) (success bool)
+
+	// A trap for setting property values, Reflect.set (Symbol properties)
+	SetSym func(target *Object, property *Symbol, value Value, receiver Value) (success bool)
+
+	// A trap for the delete operator, Reflect.deleteProperty (string properties)
+	DeleteProperty func(target *Object, property string) (success bool)
+
+	// A trap for the delete operator, Reflect.deleteProperty (integer properties)
+	DeletePropertyIdx func(target *Object, property int) (success bool)
+
+	// A trap for the delete operator, Reflect.deleteProperty (Symbol properties)
+	DeletePropertySym func(target *Object, property *Symbol) (success bool)
+
+	// A trap for Object.getOwnPropertyNames, Object.getOwnPropertySymbols, Object.keys, Reflect.ownKeys
+	OwnKeys func(target *Object) (object *Object)
+
+	// A trap for a function call, Function.prototype.apply, Function.prototype.call, Reflect.apply
+	Apply func(target *Object, this Value, argumentsList []Value) (value Value)
+
+	// A trap for the new operator, Reflect.construct
+	Construct func(target *Object, argumentsList []Value, newTarget *Object) (value *Object)
 }
 
 func (r *Runtime) newProxy(args []Value, proto *Object) *Object {

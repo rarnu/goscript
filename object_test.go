@@ -28,7 +28,7 @@ func TestDefineProperty(t *testing.T) {
 			return o.Get("__hidden")
 		}),
 		r.ToValue(func(call FunctionCall) (ret Value) {
-			_ = o.Set("__hidden", call.Argument(0))
+			o.Set("__hidden", call.Argument(0))
 			return
 		}),
 		FLAG_TRUE, FLAG_TRUE)
@@ -141,9 +141,9 @@ func TestObjectAssign(t *testing.T) {
 func TestExportCircular(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	_ = o.Set("o", o)
+	o.Set("o", o)
 	v := o.Export()
-	if m, ok := v.(map[string]any); ok {
+	if m, ok := v.(map[string]interface{}); ok {
 		if reflect.ValueOf(m["o"]).Pointer() != reflect.ValueOf(v).Pointer() {
 			t.Fatal("Unexpected value")
 		}
@@ -156,7 +156,7 @@ func TestExportCircular(t *testing.T) {
 		t.Fatal(err)
 	}
 	v = res.Export()
-	if a, ok := v.([]any); ok {
+	if a, ok := v.([]interface{}); ok {
 		if reflect.ValueOf(a[0]).Pointer() != reflect.ValueOf(v).Pointer() {
 			t.Fatal("Unexpected value")
 		}
@@ -175,8 +175,8 @@ type test_s1 struct {
 func TestExportToCircular(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	_ = o.Set("o", o)
-	var m map[string]any
+	o.Set("o", o)
+	var m map[string]interface{}
 	err := vm.ExportTo(o, &m)
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestExportToCircular(t *testing.T) {
 	}
 
 	o = vm.NewObject()
-	_ = o.Set("S", o)
+	o.Set("S", o)
 	var s test_s
 	err = vm.ExportTo(o, &s)
 	if err != nil {
@@ -216,19 +216,19 @@ func TestExportToCircular(t *testing.T) {
 	}
 
 	type test_s2 struct {
-		S  any
+		S  interface{}
 		S1 *test_s2
 	}
 
 	var s2 test_s2
-	_ = o.Set("S1", o)
+	o.Set("S1", o)
 
 	err = vm.ExportTo(o, &s2)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if m, ok := s2.S.(map[string]any); ok {
+	if m, ok := s2.S.(map[string]interface{}); ok {
 		if reflect.ValueOf(m["S"]).Pointer() != reflect.ValueOf(m).Pointer() {
 			t.Fatal("Unexpected m.S")
 		}
@@ -240,8 +240,8 @@ func TestExportToCircular(t *testing.T) {
 	}
 
 	o1 := vm.NewObject()
-	_ = o1.Set("S", o)
-	_ = o1.Set("S1", o)
+	o1.Set("S", o)
+	o1.Set("S1", o)
 	err = vm.ExportTo(o1, &s2)
 	if err != nil {
 		t.Fatal(err)
@@ -253,11 +253,11 @@ func TestExportToCircular(t *testing.T) {
 
 func TestExportWrappedMap(t *testing.T) {
 	vm := New()
-	m := map[string]any{
+	m := map[string]interface{}{
 		"test": "failed",
 	}
 	exported := vm.ToValue(m).Export()
-	if exportedMap, ok := exported.(map[string]any); ok {
+	if exportedMap, ok := exported.(map[string]interface{}); ok {
 		exportedMap["test"] = "passed"
 		if v := m["test"]; v != "passed" {
 			t.Fatalf("Unexpected m[\"test\"]: %v", v)
@@ -269,10 +269,10 @@ func TestExportWrappedMap(t *testing.T) {
 
 func TestExportToWrappedMap(t *testing.T) {
 	vm := New()
-	m := map[string]any{
+	m := map[string]interface{}{
 		"test": "failed",
 	}
-	var exported map[string]any
+	var exported map[string]interface{}
 	err := vm.ExportTo(vm.ToValue(m), &exported)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestExportToWrappedMapCustom(t *testing.T) {
 func TestExportToSliceNonIterable(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	var a []any
+	var a []interface{}
 	err := vm.ExportTo(o, &a)
 	if err == nil {
 		t.Fatal("Expected an error")
@@ -339,7 +339,7 @@ func ExampleRuntime_ExportTo_iterableToSlice() {
 	}
 
 	fmt.Println(arr)
-	// 输出: [3 2 1]
+	// Output: [3 2 1]
 }
 
 func TestRuntime_ExportTo_proxiedIterableToSlice(t *testing.T) {
@@ -391,7 +391,7 @@ func ExampleRuntime_ExportTo_arrayLikeToSlice() {
 	}
 
 	fmt.Println(arr)
-	// 输出: [1 2 3]
+	// Output: [1 2 3]
 }
 
 func TestExportArrayToArrayMismatchedLengths(t *testing.T) {
@@ -416,7 +416,7 @@ func TestExportIterableToArrayMismatchedLengths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var a1 [3]any
+	var a1 [3]interface{}
 	err = vm.ExportTo(a, &a1)
 	if err == nil {
 		t.Fatal("expected error")
@@ -439,7 +439,7 @@ func TestExportArrayLikeToArrayMismatchedLengths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var a1 [3]any
+	var a1 [3]interface{}
 	err = vm.ExportTo(a, &a1)
 	if err == nil {
 		t.Fatal("expected error")
@@ -492,7 +492,7 @@ func ExampleObject_Delete() {
 	_ = obj.Delete("test")
 	after := obj.Get("test")
 	fmt.Printf("before: %v, after: %v", before, after)
-	// 输出: before: true, after: <nil>
+	// Output: before: true, after: <nil>
 }
 
 func BenchmarkPut(b *testing.B) {

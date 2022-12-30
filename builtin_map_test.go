@@ -64,7 +64,7 @@ func TestMapEvilIterator(t *testing.T) {
 
 func TestMapExportToNilMap(t *testing.T) {
 	vm := New()
-	var m map[int]any
+	var m map[int]interface{}
 	res, err := vm.RunString("new Map([[1, true]])")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestMapExportToNilMap(t *testing.T) {
 
 func TestMapExportToNonNilMap(t *testing.T) {
 	vm := New()
-	m := map[int]any{
+	m := map[int]interface{}{
 		2: true,
 	}
 	res, err := vm.RunString("new Map([[1, true]])")
@@ -102,6 +102,44 @@ func TestMapExportToNonNilMap(t *testing.T) {
 	}
 }
 
+func TestMapGetAdderGetIteratorOrder(t *testing.T) {
+	const SCRIPT = `
+	let getterCalled = 0;
+
+	class M extends Map {
+	    get set() {
+	        getterCalled++;
+	        return null;
+	    }
+	}
+
+	let getIteratorCalled = 0;
+
+	let iterable = {};
+	iterable[Symbol.iterator] = () => {
+	    getIteratorCalled++
+	    return {
+	        next: 1
+	    };
+	}
+
+	let thrown = false;
+
+	try {
+	    new M(iterable);
+	} catch (e) {
+	    if (e instanceof TypeError) {
+	        thrown = true;
+	    } else {
+	        throw e;
+	    }
+	}
+
+	thrown && getterCalled === 1 && getIteratorCalled === 0;
+	`
+	testScript(SCRIPT, valueTrue, t)
+}
+
 func ExampleObject_Export_map() {
 	vm := New()
 	m, err := vm.RunString(`
@@ -112,7 +150,7 @@ func ExampleObject_Export_map() {
 	}
 	exp := m.Export()
 	fmt.Printf("%T, %v\n", exp, exp)
-	// 输出: [][2]interface {}, [[1 true] [2 false]]
+	// Output: [][2]interface {}, [[1 true] [2 false]]
 }
 
 func ExampleRuntime_ExportTo_mapToMap() {
@@ -129,7 +167,7 @@ func ExampleRuntime_ExportTo_mapToMap() {
 		panic(err)
 	}
 	fmt.Println(exp)
-	// 输出: map[1:true 2:false]
+	// Output: map[1:true 2:false]
 }
 
 func ExampleRuntime_ExportTo_mapToSlice() {
@@ -140,13 +178,13 @@ func ExampleRuntime_ExportTo_mapToSlice() {
 	if err != nil {
 		panic(err)
 	}
-	exp := make([][]any, 0)
+	exp := make([][]interface{}, 0)
 	err = vm.ExportTo(m, &exp)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(exp)
-	// 输出: [[1 true] [2 false]]
+	// Output: [[1 true] [2 false]]
 }
 
 func ExampleRuntime_ExportTo_mapToTypedSlice() {
@@ -157,13 +195,13 @@ func ExampleRuntime_ExportTo_mapToTypedSlice() {
 	if err != nil {
 		panic(err)
 	}
-	exp := make([][2]any, 0)
+	exp := make([][2]interface{}, 0)
 	err = vm.ExportTo(m, &exp)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(exp)
-	// 输出: [[1 true] [2 false]]
+	// Output: [[1 true] [2 false]]
 }
 
 func BenchmarkMapDelete(b *testing.B) {

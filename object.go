@@ -2,44 +2,50 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"math"
 	"reflect"
 	"sort"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 const (
-	classObject               = "Object"
-	classArray                = "Array"
-	classWeakSet              = "WeakSet"
-	classWeakMap              = "WeakMap"
-	classMysql                = "Mysql"
-	classOracle               = "Oracle"
-	classMssql                = "Mssql"
-	classDameng               = "Dameng"
-	classSQLite               = "SQLite"
-	classRedis                = "Redis"
-	classEtcd                 = "Etcd"
-	classKubernetes           = "Kubernetes"
-	classMap                  = "Map"
-	classMath                 = "Math"
-	classSet                  = "Set"
-	classFunction             = "Function"
-	classNumber               = "Number"
-	classString               = "String"
-	classBoolean              = "Boolean"
-	classError                = "Error"
-	classAggError             = "AggregateError"
-	classRegExp               = "RegExp"
-	classDate                 = "Date"
-	classJSON                 = "JSON"
-	classGlobal               = "global"
-	classPromise              = "Promise"
+	classObject        = "Object"
+	classArray         = "Array"
+	classWeakSet       = "WeakSet"
+	classWeakMap       = "WeakMap"
+	classMap           = "Map"
+	classMath          = "Math"
+	classSet           = "Set"
+	classFunction      = "Function"
+	classAsyncFunction = "AsyncFunction"
+	classNumber        = "Number"
+	classString        = "String"
+	classBoolean       = "Boolean"
+	classError         = "Error"
+	classAggError      = "AggregateError"
+	classRegExp        = "RegExp"
+	classDate          = "Date"
+	classJSON          = "JSON"
+	classGlobal        = "global"
+	classPromise       = "Promise"
+
 	classArrayIterator        = "Array Iterator"
 	classMapIterator          = "Map Iterator"
 	classSetIterator          = "Set Iterator"
 	classStringIterator       = "String Iterator"
 	classRegExpStringIterator = "RegExp String Iterator"
+
+	classEtcd          = "Etcd"
+	classDameng        = "Dameng"
+	classInfluxDB      = "InfluxDB"
+	classInfluxDBWrite = "InfluxDBWrite"
+	classInfluxDBQuery = "InfluxDBQuery"
+	classMssql         = "Mssql"
+	classMysql         = "Mysql"
+	classOracle        = "Oracle"
+	classRedis         = "Redis"
+	classSQLite        = "SQLite"
 )
 
 var (
@@ -49,19 +55,23 @@ var (
 )
 
 type Object struct {
-	id       uint64
-	runtime  *Runtime
-	self     objectImpl
+	id      uint64
+	runtime *Runtime
+	self    objectImpl
+
 	weakRefs map[weakMap]Value
 }
 
 type iterNextFunc func() (propIterItem, iterNextFunc)
 
 type PropertyDescriptor struct {
-	jsDescriptor                       *Object
-	Value                              Value
+	jsDescriptor *Object
+
+	Value Value
+
 	Writable, Configurable, Enumerable Flag
-	Getter, Setter                     Value
+
+	Getter, Setter Value
 }
 
 func (p *PropertyDescriptor) Empty() bool {
@@ -141,15 +151,16 @@ func (p *PropertyDescriptor) complete() {
 	}
 }
 
-type objectExportCacheItem map[reflect.Type]any
+type objectExportCacheItem map[reflect.Type]interface{}
 
 type objectExportCtx struct {
-	cache map[*Object]any
+	cache map[*Object]interface{}
 }
 
 type objectImpl interface {
 	sortable
 	className() string
+	typeOf() valueString
 	getStr(p unistring.String, receiver Value) Value
 	getIdx(p valueInt, receiver Value) Value
 	getSym(p *Symbol, receiver Value) Value
@@ -186,6 +197,7 @@ type objectImpl interface {
 	toPrimitiveString() Value
 	toPrimitive() Value
 	assertCallable() (call func(FunctionCall) Value, ok bool)
+	vmCall(vm *vm, n int)
 	assertConstructor() func(args []Value, newTarget *Object) *Object
 	proto() *Object
 	setProto(proto *Object, throw bool) bool
@@ -193,7 +205,7 @@ type objectImpl interface {
 	isExtensible() bool
 	preventExtensions(throw bool) bool
 
-	export(ctx *objectExportCtx) any
+	export(ctx *objectExportCtx) interface{}
 	exportType() reflect.Type
 	exportToMap(m reflect.Value, typ reflect.Type, ctx *objectExportCtx) error
 	exportToArrayOrSlice(s reflect.Value, typ reflect.Type, ctx *objectExportCtx) error
@@ -213,15 +225,19 @@ type objectImpl interface {
 }
 
 type baseObject struct {
-	class                           string
-	val                             *Object
-	prototype                       *Object
-	extensible                      bool
-	values                          map[unistring.String]Value
-	propNames                       []unistring.String
+	class      string
+	val        *Object
+	prototype  *Object
+	extensible bool
+
+	values    map[unistring.String]Value
+	propNames []unistring.String
+
 	lastSortedPropLen, idxPropCount int
-	symValues                       *orderedMap
-	privateElements                 map[*privateEnvType]*privateElements
+
+	symValues *orderedMap
+
+	privateElements map[*privateEnvType]*privateElements
 }
 
 type guardedObject struct {
@@ -234,7 +250,7 @@ type primitiveValueObject struct {
 	pValue Value
 }
 
-func (o *primitiveValueObject) export(*objectExportCtx) any {
+func (o *primitiveValueObject) export(*objectExportCtx) interface{} {
 	return o.pValue.Export()
 }
 
@@ -273,6 +289,10 @@ func (o *baseObject) init() {
 
 func (o *baseObject) className() string {
 	return o.class
+}
+
+func (o *baseObject) typeOf() valueString {
+	return stringObjectC
 }
 
 func (o *baseObject) hasPropertyStr(name unistring.String) bool {
@@ -469,10 +489,12 @@ func (o *baseObject) setOwnStr(name unistring.String, val Value, throw bool) boo
 	ownDesc := o.values[name]
 	if ownDesc == nil {
 		if proto := o.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, handled := proto.self.setForeignStr(name, val, o.val, throw); handled {
 				return res
 			}
 		}
+		// new property
 		if !o.extensible {
 			o.val.runtime.typeErrorResult(throw, "Cannot add property %s, object is not extensible", name)
 			return false
@@ -507,10 +529,12 @@ func (o *baseObject) setOwnSym(name *Symbol, val Value, throw bool) bool {
 	}
 	if ownDesc == nil {
 		if proto := o.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, handled := proto.self.setForeignSym(name, val, o.val, throw); handled {
 				return res
 			}
 		}
+		// new property
 		if !o.extensible {
 			o.val.runtime.typeErrorResult(throw, "Cannot add property %s, object is not extensible", name)
 			return false
@@ -920,6 +944,10 @@ func (o *baseObject) assertCallable() (func(FunctionCall) Value, bool) {
 	return nil, false
 }
 
+func (o *baseObject) vmCall(vm *vm, n int) {
+	vm.r.typeErrorResult(true, "Not a function: %s", o.val.toString())
+}
+
 func (o *baseObject) assertConstructor() func(args []Value, newTarget *Object) *Object {
 	return nil
 }
@@ -956,12 +984,12 @@ func (o *baseObject) swap(i int, j int) {
 	o.val.self.setOwnIdx(jj, x, false)
 }
 
-func (o *baseObject) export(ctx *objectExportCtx) any {
+func (o *baseObject) export(ctx *objectExportCtx) interface{} {
 	if v, exists := ctx.get(o.val); exists {
 		return v
 	}
 	keys := o.stringKeys(false, nil)
-	m := make(map[string]any, len(keys))
+	m := make(map[string]interface{}, len(keys))
 	ctx.put(o.val, m)
 	for _, itemName := range keys {
 		itemNameStr := itemName.String()
@@ -1028,7 +1056,10 @@ func genericExportToArrayOrSlice(o *Object, dst reflect.Value, typ reflect.Type,
 	r := o.runtime
 
 	if method := toMethod(r.getV(o, SymIterator)); method != nil {
+		// iterable
+
 		var values []Value
+		// cannot change (append to) the slice once it's been put into the cache, so we need to know its length beforehand
 		ex := r.try(func() {
 			values = r.iterableToList(o, method)
 		})
@@ -1050,6 +1081,7 @@ func genericExportToArrayOrSlice(o *Object, dst reflect.Value, typ reflect.Type,
 			}
 		}
 	} else {
+		// array-like
 		var lp Value
 		if _, ok := o.self.assertCallable(); !ok {
 			lp = o.self.getStr("length", nil)
@@ -1189,10 +1221,15 @@ func (i *objectPropIter) next() (propIterItem, iterNextFunc) {
 
 var copyMarker = unistring.String(" ")
 
-// 设置一个 copy-on-write 标志，以便随后对低于当前长度的任何东西的修改都会触发一个复制。
-// 标记是一个特殊的值，放在cap-1的索引位置。容量的设置使标记超出了当前的长度（因此对于正常的切片操作是不可见的）。
-// 这个函数在迭代开始前被调用，以避免在迭代过程中没有修改的情况下复制名字数组
-// 注意，复制也发生在两种情况下：嵌套的迭代（在同一个对象上）和之前放弃的迭代之后的迭代（因为目前没有机制来关闭一个迭代器），但是这仍然比每次都复制要好。
+// Set a copy-on-write flag so that any subsequent modifications of anything below the current length
+// trigger a copy.
+// The marker is a special value put at the index position of cap-1. Capacity is set so that the marker is
+// beyond the current length (therefore invisible to normal slice operations).
+// This function is called before an iteration begins to avoid copying of the names array if
+// there are no modifications within the iteration.
+// Note that the copying also occurs in two cases: nested iterations (on the same object) and
+// iterations after a previously abandoned iteration (because there is currently no mechanism to close an
+// iterator). It is still better than copying every time.
 func prepareNamesForCopy(names []unistring.String) []unistring.String {
 	if len(names) == 0 {
 		return names
@@ -1296,16 +1333,24 @@ func (o *baseObject) iterateKeys() iterNextFunc {
 }
 
 func (o *baseObject) equal(objectImpl) bool {
+	// Rely on parent reference comparison
 	return false
 }
 
+// hopefully this gets inlined
 func (o *baseObject) ensurePropOrder() {
 	if o.lastSortedPropLen < len(o.propNames) {
 		o.fixPropOrder()
 	}
 }
 
-// 重新排列属性名称，使任何整数属性按升序移到列表的开头。这是为了符合 https://262.ecma-international.org/#sec-ordinaryownpropertykeys
+// Reorder property names so that any integer properties are shifted to the beginning of the list
+// in ascending order. This is to conform to https://262.ecma-international.org/#sec-ordinaryownpropertykeys.
+// Personally I think this requirement is strange. I can sort of understand where they are coming from,
+// this way arrays can be specified just as objects with a 'magic' length property. However, I think
+// it's safe to assume most devs don't use Objects to store integer properties. Therefore, performing
+// property type checks when adding (and potentially looking up) properties would be unreasonable.
+// Instead, we keep insertion order and only change it when (if) the properties get enumerated.
 func (o *baseObject) fixPropOrder() {
 	names := o.propNames
 	for i := o.lastSortedPropLen; i < len(names); i++ {
@@ -1667,7 +1712,7 @@ func (o *guardedObject) deleteStr(name unistring.String, throw bool) bool {
 	return res
 }
 
-func (ctx *objectExportCtx) get(key *Object) (any, bool) {
+func (ctx *objectExportCtx) get(key *Object) (interface{}, bool) {
 	if v, exists := ctx.cache[key]; exists {
 		if item, ok := v.(objectExportCacheItem); ok {
 			r, exists := item[key.self.exportType()]
@@ -1679,7 +1724,7 @@ func (ctx *objectExportCtx) get(key *Object) (any, bool) {
 	return nil, false
 }
 
-func (ctx *objectExportCtx) getTyped(key *Object, typ reflect.Type) (any, bool) {
+func (ctx *objectExportCtx) getTyped(key *Object, typ reflect.Type) (interface{}, bool) {
 	if v, exists := ctx.cache[key]; exists {
 		if item, ok := v.(objectExportCacheItem); ok {
 			r, exists := item[typ]
@@ -1693,9 +1738,9 @@ func (ctx *objectExportCtx) getTyped(key *Object, typ reflect.Type) (any, bool) 
 	return nil, false
 }
 
-func (ctx *objectExportCtx) put(key *Object, value any) {
+func (ctx *objectExportCtx) put(key *Object, value interface{}) {
 	if ctx.cache == nil {
-		ctx.cache = make(map[*Object]any)
+		ctx.cache = make(map[*Object]interface{})
 	}
 	if item, ok := ctx.cache[key].(objectExportCacheItem); ok {
 		item[key.self.exportType()] = value
@@ -1704,9 +1749,9 @@ func (ctx *objectExportCtx) put(key *Object, value any) {
 	}
 }
 
-func (ctx *objectExportCtx) putTyped(key *Object, typ reflect.Type, value any) {
+func (ctx *objectExportCtx) putTyped(key *Object, typ reflect.Type, value interface{}) {
 	if ctx.cache == nil {
-		ctx.cache = make(map[*Object]any)
+		ctx.cache = make(map[*Object]interface{})
 	}
 	v, exists := ctx.cache[key]
 	if exists {
@@ -1787,8 +1832,10 @@ type privateNames map[unistring.String]*privateId
 
 type privateEnv struct {
 	instanceType, staticType *privateEnvType
-	names                    privateNames
-	outer                    *privateEnv
+
+	names privateNames
+
+	outer *privateEnv
 }
 
 type privateElements struct {

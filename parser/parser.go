@@ -1,72 +1,117 @@
+/*
+Package parser implements a parser for JavaScript.
+
+	import (
+	    "github.com/dop251/goja/parser"
+	)
+
+Parse and return an AST
+
+	filename := "" // A filename is optional
+	src := `
+	    // Sample xyzzy example
+	    (function(){
+	        if (3.14159 > 0) {
+	            console.log("Hello, World.");
+	            return;
+	        }
+
+	        var xyzzy = NaN;
+	        console.log("Nothing happens.");
+	        return xyzzy;
+	    })();
+	`
+
+	// Parse some JavaScript, yielding a *ast.Program and/or an ErrorList
+	program, err := parser.ParseFile(nil, filename, src, 0)
+
+# Warning
+
+The parser and AST interfaces are still works-in-progress (particularly where
+node types are concerned) and may change in the future.
+*/
 package parser
 
 import (
 	"bytes"
 	"errors"
-	"fmt"
+	"io"
+	"os"
+
 	"github.com/rarnu/goscript/ast"
 	"github.com/rarnu/goscript/file"
 	"github.com/rarnu/goscript/token"
 	"github.com/rarnu/goscript/unistring"
-	"io"
-	"os"
 )
 
-// Mode 保存一组标志，该标志用于控制 parser 的可选功能
+// A Mode value is a set of flags (or 0). They control optional parser functionality.
 type Mode uint
 
-const IgnoreRegExpErrors Mode = 1 << iota // 忽略正则兼容性错误 (允许回溯)
+const (
+	IgnoreRegExpErrors Mode = 1 << iota // Ignore RegExp compatibility errors (allow backtracking)
+)
 
 type options struct {
 	disableSourceMaps bool
 	sourceMapLoader   func(path string) ([]byte, error)
 }
 
-// Option 表示在 parser 内使用的选项之一，目前支持的是 WithDisableSourceMaps 和 WithSourceMapLoader
+// Option represents one of the options for the parser to use in the Parse methods. Currently supported are:
+// WithDisableSourceMaps and WithSourceMapLoader.
 type Option func(*options)
 
-// WithDisableSourceMaps 禁用源码 map 的选项，在不使用源码 map 时，将会节省解析 map 的时间
+// WithDisableSourceMaps is an option to disable source maps support. May save a bit of time when source maps
+// are not in use.
 func WithDisableSourceMaps(opts *options) {
 	opts.disableSourceMaps = true
 }
 
-// WithSourceMapLoader 启用源码 map 的选项，可以设置一个自定义的源码 map 加载器
-// 该加载器将被赋予一个路径或一个 sourceMappingURL 中的 URL，sourceMappingURL 可以是绝对路径或相对路径
-// 任何由加载器返回的错误都会导致解析失败
+// WithSourceMapLoader is an option to set a custom source map loader. The loader will be given a path or a
+// URL from the sourceMappingURL. If sourceMappingURL is not absolute it is resolved relatively to the name
+// of the file being parsed. Any error returned by the loader will fail the parsing.
+// Note that setting this to nil does not disable source map support, there is a default loader which reads
+// from the filesystem. Use WithDisableSourceMaps to disable source map support.
 func WithSourceMapLoader(loader func(path string) ([]byte, error)) Option {
 	return func(opts *options) {
 		opts.sourceMapLoader = loader
 	}
 }
 
-type parser struct {
-	str               string
-	length            int
-	base              int
-	chr               rune        // 当前的字符
-	chrOffset         int         // 当前字符的偏移量(offset)
-	offset            int         // 紧随当前字符的偏移量(offset), 必定大于或等于 1
-	idx               file.Idx    // 令牌(token)的索引
-	token             token.Token // 令牌(token)
-	literal           string      // 令牌(token)的字面量(literal) (哪果有的话)
-	parsedLiteral     unistring.String
-	scope             *scope
-	insertSemicolon   bool // 如果发现有换行，则插入一个隐藏的分号
-	implicitSemicolon bool // 隐藏的分号是否已存在
-	errors            ErrorList
-	recover           struct {
-		// 在试图寻找下一个语句时，出现未预期的异常 (如不完整的语句等)
+type _parser struct {
+	str    string
+	length int
+	base   int
+
+	chr       rune // The current character
+	chrOffset int  // The offset of current character
+	offset    int  // The offset after current character (may be greater than 1)
+
+	idx           file.Idx    // The index of token
+	token         token.Token // The token
+	literal       string      // The literal of the token, if any
+	parsedLiteral unistring.String
+
+	scope             *_scope
+	insertSemicolon   bool // If we see a newline, then insert an implicit semicolon
+	implicitSemicolon bool // An implicit semicolon exists
+
+	errors ErrorList
+
+	recover struct {
+		// Scratch when trying to seek to the next statement, etc.
 		idx   file.Idx
 		count int
 	}
+
 	mode Mode
 	opts options
+
 	file *file.File
 }
 
-func _newParser(filename, src string, base int, opts ...Option) *parser {
-	p := &parser{
-		chr:    ' ', // 设置跳过起始的空白字符，然后进行扫描
+func _newParser(filename, src string, base int, opts ...Option) *_parser {
+	p := &_parser{
+		chr:    ' ', // This is set so we can start scanning by skipping whitespace
 		str:    src,
 		length: len(src),
 		base:   base,
@@ -78,11 +123,11 @@ func _newParser(filename, src string, base int, opts ...Option) *parser {
 	return p
 }
 
-func newParser(filename, src string) *parser {
+func newParser(filename, src string) *_parser {
 	return _newParser(filename, src, 1)
 }
 
-func ReadSource(filename string, src any) ([]byte, error) {
+func ReadSource(filename string, src interface{}) ([]byte, error) {
 	if src != nil {
 		switch src := src.(type) {
 		case string:
@@ -105,98 +150,119 @@ func ReadSource(filename string, src any) ([]byte, error) {
 	return os.ReadFile(filename)
 }
 
-// ParseFile 解析单个 JavaScript 源文件的代码并返回相应的 ast.Program 节点
-// 若文件集合为空，则解析时不包含文件集合(没有上下文)，若文件集合非空，则先将要解析的文件加入其中
-// 文件名参数可选，用于在出现错误时，标记错误发生的文件名
-// src 可以是 string/[]byte/bytes.Buffer/io.Reader, 但是不论如何，它的内容编码必须是UTF8
-// 解析 JavaScript 将最终产生一个 *ast.Program 和一个 ErrorList
-func ParseFile(fileSet *file.FileSet, filename string, src any, mode Mode, options ...Option) (*ast.Program, error) {
-	b, err := ReadSource(filename, src)
+// ParseFile parses the source code of a single JavaScript/ECMAScript source file and returns
+// the corresponding ast.Program node.
+//
+// If fileSet == nil, ParseFile parses source without a FileSet.
+// If fileSet != nil, ParseFile first adds filename and src to fileSet.
+//
+// The filename argument is optional and is used for labelling errors, etc.
+//
+// src may be a string, a byte slice, a bytes.Buffer, or an io.Reader, but it MUST always be in UTF-8.
+//
+//	// Parse some JavaScript, yielding a *ast.Program and/or an ErrorList
+//	program, err := parser.ParseFile(nil, "", `if (abc > 1) {}`, 0)
+func ParseFile(fileSet *file.FileSet, filename string, src interface{}, mode Mode, options ...Option) (*ast.Program, error) {
+	str, err := ReadSource(filename, src)
 	if err != nil {
 		return nil, err
 	}
-	str := string(b)
-	base := 1
-	if fileSet != nil {
-		base = fileSet.AddFile(filename, str)
-	}
-	p := _newParser(filename, str, base, options...)
-	p.mode = mode
-	return p.parse()
+	{
+		str := string(str)
 
+		base := 1
+		if fileSet != nil {
+			base = fileSet.AddFile(filename, str)
+		}
+
+		parser := _newParser(filename, str, base, options...)
+		parser.mode = mode
+		return parser.parse()
+	}
 }
 
-// ParseFunction 将一个给定的参数列表和主体解析为一个函数，并返回相应的 ast.FunctionLiteral 节点
-// 若有参数，则参数列表必须是一个用逗号分隔的标识符列表
+// ParseFunction parses a given parameter list and body as a function and returns the
+// corresponding ast.FunctionLiteral node.
+//
+// The parameter list, if any, should be a comma-separated list of identifiers.
 func ParseFunction(parameterList, body string, options ...Option) (*ast.FunctionLiteral, error) {
-	src := fmt.Sprintf("(function(%s) {\n%s\n})", parameterList, body)
-	p := _newParser("", src, 1, options...)
-	program, err := p.parse()
+
+	src := "(function(" + parameterList + ") {\n" + body + "\n})"
+
+	parser := _newParser("", src, 1, options...)
+	program, err := parser.parse()
 	if err != nil {
 		return nil, err
 	}
+
 	return program.Body[0].(*ast.ExpressionStatement).Expression.(*ast.FunctionLiteral), nil
 }
 
-func (p *parser) slice(idx0, idx1 file.Idx) string {
-	from := int(idx0) - p.base
-	to := int(idx1) - p.base
-	if from >= 0 && to <= len(p.str) {
-		return p.str[from:to]
+func (self *_parser) slice(idx0, idx1 file.Idx) string {
+	from := int(idx0) - self.base
+	to := int(idx1) - self.base
+	if from >= 0 && to <= len(self.str) {
+		return self.str[from:to]
 	}
+
 	return ""
 }
 
-func (p *parser) parse() (*ast.Program, error) {
-	p.next()
-	program := p.parseProgram()
+func (self *_parser) parse() (*ast.Program, error) {
+	self.openScope()
+	defer self.closeScope()
+	self.next()
+	program := self.parseProgram()
 	if false {
-		p.errors.Sort()
+		self.errors.Sort()
 	}
-	return program, p.errors.Err()
+	return program, self.errors.Err()
 }
 
-func (p *parser) next() {
-	p.token, p.literal, p.parsedLiteral, p.idx = p.scan()
+func (self *_parser) next() {
+	self.token, self.literal, self.parsedLiteral, self.idx = self.scan()
 }
 
-func (p *parser) optionalSemicolon() {
-	if p.token == token.SEMICOLON {
-		p.next()
+func (self *_parser) optionalSemicolon() {
+	if self.token == token.SEMICOLON {
+		self.next()
 		return
 	}
-	if p.implicitSemicolon {
-		p.implicitSemicolon = false
+
+	if self.implicitSemicolon {
+		self.implicitSemicolon = false
 		return
 	}
-	if p.token != token.EOF && p.token != token.RIGHT_BRACE {
-		p.expect(token.SEMICOLON)
+
+	if self.token != token.EOF && self.token != token.RIGHT_BRACE {
+		self.expect(token.SEMICOLON)
 	}
 }
 
-func (p *parser) semicolon() {
-	if p.token != token.RIGHT_PARENTHESIS && p.token != token.RIGHT_BRACE {
-		if p.implicitSemicolon {
-			p.implicitSemicolon = false
+func (self *_parser) semicolon() {
+	if self.token != token.RIGHT_PARENTHESIS && self.token != token.RIGHT_BRACE {
+		if self.implicitSemicolon {
+			self.implicitSemicolon = false
 			return
 		}
-		p.expect(token.SEMICOLON)
+
+		self.expect(token.SEMICOLON)
 	}
 }
 
-func (p *parser) idxOf(offset int) file.Idx {
-	return file.Idx(p.base + offset)
+func (self *_parser) idxOf(offset int) file.Idx {
+	return file.Idx(self.base + offset)
 }
 
-func (p *parser) expect(value token.Token) file.Idx {
-	idx := p.idx
-	if p.token != value {
-		_ = p.errorUnexpectedToken(p.token)
+func (self *_parser) expect(value token.Token) file.Idx {
+	idx := self.idx
+	if self.token != value {
+		self.errorUnexpectedToken(self.token)
 	}
-	p.next()
+	self.next()
 	return idx
 }
 
-func (p *parser) position(idx file.Idx) file.Position {
-	return p.file.Position(int(idx) - p.base)
+func (self *_parser) position(idx file.Idx) file.Position {
+	return self.file.Position(int(idx) - self.base)
 }

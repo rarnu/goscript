@@ -161,6 +161,8 @@ func (r *Runtime) toValueProp(v Value) *valueProperty {
 func (r *Runtime) toPropertyDescriptor(v Value) (ret PropertyDescriptor) {
 	if o, ok := v.(*Object); ok {
 		descr := o.self
+
+		// Save the original descriptor for reference
 		ret.jsDescriptor = o
 
 		ret.Value = descr.getStr("value", nil)
@@ -254,6 +256,7 @@ func (r *Runtime) object_defineProperties(call FunctionCall) Value {
 }
 
 func (r *Runtime) object_seal(call FunctionCall) Value {
+	// ES6
 	arg := call.Argument(0)
 	if obj, ok := arg.(*Object); ok {
 		obj.self.preventExtensions(true)
@@ -300,6 +303,7 @@ func (r *Runtime) object_freeze(call FunctionCall) Value {
 		}
 		return obj
 	} else {
+		// ES6 behavior
 		return arg
 	}
 }
@@ -373,6 +377,8 @@ func (r *Runtime) object_isExtensible(call FunctionCall) Value {
 		}
 		return valueFalse
 	} else {
+		// ES6
+		//r.typeErrorResult(true, "Object.isExtensible called on non-object")
 		return valueFalse
 	}
 }
@@ -550,6 +556,40 @@ func (r *Runtime) object_setPrototypeOf(call FunctionCall) Value {
 	return o
 }
 
+func (r *Runtime) object_fromEntries(call FunctionCall) Value {
+	o := call.Argument(0)
+	r.checkObjectCoercible(o)
+
+	result := r.newBaseObject(r.global.ObjectPrototype, classObject).val
+
+	iter := r.getIterator(o, nil)
+	iter.iterate(func(nextValue Value) {
+		i0 := valueInt(0)
+		i1 := valueInt(1)
+
+		itemObj := r.toObject(nextValue)
+		k := itemObj.self.getIdx(i0, nil)
+		v := itemObj.self.getIdx(i1, nil)
+		key := toPropertyKey(k)
+
+		createDataPropertyOrThrow(result, key, v)
+	})
+
+	return result
+}
+
+func (r *Runtime) object_hasOwn(call FunctionCall) Value {
+	o := call.Argument(0)
+	obj := o.ToObject(r)
+	p := toPropertyKey(call.Argument(1))
+
+	if obj.hasOwnProperty(p) {
+		return valueTrue
+	} else {
+		return valueFalse
+	}
+}
+
 func (r *Runtime) initObject() {
 	o := r.global.ObjectPrototype.self
 	o._putProp("toString", r.newNativeFunc(r.objectproto_toString, nil, "toString", nil, 0), true, false, true)
@@ -587,6 +627,8 @@ func (r *Runtime) initObject() {
 	o._putProp("keys", r.newNativeFunc(r.object_keys, nil, "keys", nil, 1), true, false, true)
 	o._putProp("setPrototypeOf", r.newNativeFunc(r.object_setPrototypeOf, nil, "setPrototypeOf", nil, 2), true, false, true)
 	o._putProp("values", r.newNativeFunc(r.object_values, nil, "values", nil, 1), true, false, true)
+	o._putProp("fromEntries", r.newNativeFunc(r.object_fromEntries, nil, "fromEntries", nil, 1), true, false, true)
+	o._putProp("hasOwn", r.newNativeFunc(r.object_hasOwn, nil, "hasOwn", nil, 2), true, false, true)
 
 	r.addToGlobal("Object", r.global.Object)
 }

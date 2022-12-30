@@ -2,15 +2,16 @@ package parser
 
 import (
 	"fmt"
+	"sort"
+
 	"github.com/rarnu/goscript/file"
 	"github.com/rarnu/goscript/token"
-	"sort"
 )
 
 const (
-	errUnexpectedToken      = "Unexpected token %v"
-	errUnexpectedEndOfInput = "Unexpected end of input"
-	errUnexpectedEscape     = "Unexpected escape"
+	err_UnexpectedToken      = "Unexpected token %v"
+	err_UnexpectedEndOfInput = "Unexpected end of input"
+	err_UnexpectedEscape     = "Unexpected escape"
 )
 
 //    UnexpectedNumber:  'Unexpected number',
@@ -45,89 +46,97 @@ const (
 //    StrictLHSPrefix:  'Prefix increment/decrement may not have eval or arguments operand in strict mode',
 //    StrictReservedWord:  'Use of future reserved word in strict mode'
 
-// Error JavaScript 解析错误，它包含了发生错误的位置和具体的描述
+// A SyntaxError is a description of an ECMAScript syntax error.
+
+// An Error represents a parsing error. It includes the position where the error occurred and a message/description.
 type Error struct {
 	Position file.Position
 	Message  string
 }
 
-// ErrorList 错误列表
-type ErrorList []*Error
+// FIXME Should this be "SyntaxError"?
 
-func (e Error) Error() string {
-	filename := e.Position.Filename
+func (self Error) Error() string {
+	filename := self.Position.Filename
 	if filename == "" {
 		filename = "(anonymous)"
 	}
 	return fmt.Sprintf("%s: Line %d:%d %s",
 		filename,
-		e.Position.Line,
-		e.Position.Column,
-		e.Message,
+		self.Position.Line,
+		self.Position.Column,
+		self.Message,
 	)
 }
 
-func (p *parser) error(place any, msg string, msgValues ...any) *Error {
+func (self *_parser) error(place interface{}, msg string, msgValues ...interface{}) *Error {
 	idx := file.Idx(0)
-	switch pl := place.(type) {
+	switch place := place.(type) {
 	case int:
-		idx = p.idxOf(pl)
+		idx = self.idxOf(place)
 	case file.Idx:
-		if pl == 0 {
-			idx = p.idxOf(p.chrOffset)
+		if place == 0 {
+			idx = self.idxOf(self.chrOffset)
 		} else {
-			idx = pl
+			idx = place
 		}
 	default:
-		panic(fmt.Errorf("error(%T, ...)", pl))
+		panic(fmt.Errorf("error(%T, ...)", place))
 	}
-	position := p.position(idx)
+
+	position := self.position(idx)
 	msg = fmt.Sprintf(msg, msgValues...)
-	p.errors.Add(position, msg)
-	return p.errors[len(p.errors)-1]
+	self.errors.Add(position, msg)
+	return self.errors[len(self.errors)-1]
 }
 
-func (p *parser) errorUnexpected(idx file.Idx, chr rune) error {
+func (self *_parser) errorUnexpected(idx file.Idx, chr rune) error {
 	if chr == -1 {
-		return p.error(idx, errUnexpectedEndOfInput)
+		return self.error(idx, err_UnexpectedEndOfInput)
 	}
-	return p.error(idx, errUnexpectedToken, token.ILLEGAL)
+	return self.error(idx, err_UnexpectedToken, token.ILLEGAL)
 }
 
-func (p *parser) errorUnexpectedToken(tkn token.Token) error {
+func (self *_parser) errorUnexpectedToken(tkn token.Token) error {
 	switch tkn {
 	case token.EOF:
-		return p.error(file.Idx(0), errUnexpectedEndOfInput)
+		return self.error(file.Idx(0), err_UnexpectedEndOfInput)
 	}
 	value := tkn.String()
 	switch tkn {
 	case token.BOOLEAN, token.NULL:
-		value = p.literal
+		value = self.literal
 	case token.IDENTIFIER:
-		return p.error(p.idx, "Unexpected identifier")
+		return self.error(self.idx, "Unexpected identifier")
 	case token.KEYWORD:
-		// 同样可能是未来的关键字
-		return p.error(p.idx, "Unexpected reserved word")
+		// TODO Might be a future reserved word
+		return self.error(self.idx, "Unexpected reserved word")
 	case token.ESCAPED_RESERVED_WORD:
-		return p.error(p.idx, "Keyword must not contain escaped characters")
+		return self.error(self.idx, "Keyword must not contain escaped characters")
 	case token.NUMBER:
-		return p.error(p.idx, "Unexpected number")
+		return self.error(self.idx, "Unexpected number")
 	case token.STRING:
-		return p.error(p.idx, "Unexpected string")
+		return self.error(self.idx, "Unexpected string")
 	}
-	return p.error(p.idx, errUnexpectedToken, value)
+	return self.error(self.idx, err_UnexpectedToken, value)
 }
 
-func (l *ErrorList) Add(position file.Position, msg string) {
-	*l = append(*l, &Error{position, msg})
+// ErrorList is a list of *Errors.
+type ErrorList []*Error
+
+// Add adds an Error with given position and message to an ErrorList.
+func (self *ErrorList) Add(position file.Position, msg string) {
+	*self = append(*self, &Error{position, msg})
 }
 
-func (l *ErrorList) Reset()        { *l = (*l)[0:0] }
-func (l *ErrorList) Len() int      { return len(*l) }
-func (l *ErrorList) Swap(i, j int) { (*l)[i], (*l)[j] = (*l)[j], (*l)[i] }
-func (l *ErrorList) Less(i, j int) bool {
-	x := &((*l)[i]).Position
-	y := &((*l)[j]).Position
+// Reset resets an ErrorList to no errors.
+func (self *ErrorList) Reset() { *self = (*self)[0:0] }
+
+func (self ErrorList) Len() int      { return len(self) }
+func (self ErrorList) Swap(i, j int) { self[i], self[j] = self[j], self[i] }
+func (self ErrorList) Less(i, j int) bool {
+	x := &self[i].Position
+	y := &self[j].Position
 	if x.Filename < y.Filename {
 		return true
 	}
@@ -142,23 +151,26 @@ func (l *ErrorList) Less(i, j int) bool {
 	return false
 }
 
-func (l *ErrorList) Sort() {
-	sort.Sort(l)
+func (self ErrorList) Sort() {
+	sort.Sort(self)
 }
 
-func (l *ErrorList) Error() string {
-	switch len(*l) {
+// Error implements the Error interface.
+func (self ErrorList) Error() string {
+	switch len(self) {
 	case 0:
 		return "no errors"
 	case 1:
-		return (*l)[0].Error()
+		return self[0].Error()
 	}
-	return fmt.Sprintf("%s (and %d more errors)", (*l)[0].Error(), len(*l)-1)
+	return fmt.Sprintf("%s (and %d more errors)", self[0].Error(), len(self)-1)
 }
 
-func (l *ErrorList) Err() error {
-	if len(*l) == 0 {
+// Err returns an error equivalent to this ErrorList.
+// If the list is empty, Err returns nil.
+func (self ErrorList) Err() error {
+	if len(self) == 0 {
 		return nil
 	}
-	return l
+	return self
 }

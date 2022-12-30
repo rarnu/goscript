@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"io"
 	"math"
 	"strconv"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 const hex = "0123456789abcdef"

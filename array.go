@@ -2,11 +2,12 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"math"
 	"math/bits"
 	"reflect"
 	"strconv"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type arrayIterObject struct {
@@ -81,6 +82,7 @@ func (a *arrayObject) _setLengthInt(l uint32, throw bool) bool {
 	ret := true
 	if l <= a.length {
 		if a.propValueCount > 0 {
+			// Slow path
 			for i := len(a.values) - 1; i >= int(l); i-- {
 				if prop, ok := a.values[i].(*valueProperty); ok {
 					if !prop.configurable {
@@ -217,10 +219,12 @@ func (a *arrayObject) _setOwnIdx(idx uint32, val Value, throw bool) bool {
 
 	if prop == nil {
 		if proto := a.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, ok := proto.self.setForeignIdx(valueInt(idx), val, a.val, throw); ok {
 				return res
 			}
 		}
+		// new property
 		if !a.extensible {
 			a.val.runtime.typeErrorResult(throw, "Cannot add property %d, object is not extensible", idx)
 			return false
@@ -335,6 +339,7 @@ func (a *arrayObject) expand(idx uint32) bool {
 			a.values = a.values[:targetLen]
 		} else {
 			if idx > 4096 && (a.objCount == 0 || idx/uint32(a.objCount) > 10) {
+				//log.Println("Switching standard->sparse")
 				sa := &sparseArrayObject{
 					baseObject:     a.baseObject,
 					length:         a.length,
@@ -475,11 +480,11 @@ func (a *arrayObject) deleteIdx(idx valueInt, throw bool) bool {
 	return a.baseObject.deleteStr(idx.string(), throw)
 }
 
-func (a *arrayObject) export(ctx *objectExportCtx) any {
+func (a *arrayObject) export(ctx *objectExportCtx) interface{} {
 	if v, exists := ctx.get(a.val); exists {
 		return v
 	}
-	arr := make([]any, a.length)
+	arr := make([]interface{}, a.length)
 	ctx.put(a.val, arr)
 	if a.propValueCount == 0 && a.length == uint32(len(a.values)) && uint32(a.objCount) == a.length {
 		for i, v := range a.values {

@@ -1,3 +1,11 @@
+/*
+Package ftoa provides ECMAScript-compliant floating point number conversion to string.
+
+It contains code ported from Rhino (https://github.com/mozilla/rhino/blob/master/src/org/mozilla/javascript/DToA.java)
+as well as from the original code by David M. Gay.
+
+See LICENSE_LUCENE for the original copyright message and disclaimer.
+*/
 package ftoa
 
 import (
@@ -98,7 +106,7 @@ func d2b(d float64, b []byte) (e, bits int, dblBits []byte) {
 	d1 := uint32(dBits)
 
 	z := d0 & frac_mask
-	d0 &= 0x7fffffff // 清除符号位
+	d0 &= 0x7fffffff /* clear sign bit, which we ignore */
 
 	var de, k, i int
 	if de = int(d0 >> exp_shift); de != 0 {

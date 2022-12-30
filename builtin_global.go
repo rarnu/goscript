@@ -346,6 +346,9 @@ func (r *Runtime) initGlobalObject() {
 	o._putProp("unescape", r.newNativeFunc(r.builtin_unescape, nil, "unescape", nil, 1), true, false, true)
 
 	o._putSym(SymToStringTag, valueProp(asciiString(classGlobal), false, false, true))
+
+	// TODO: Annex B
+
 }
 
 func digitVal(d byte) int {
@@ -363,6 +366,7 @@ func digitVal(d byte) int {
 	return int(v)
 }
 
+// ECMAScript compatible version of strconv.ParseInt
 func parseInt(s string, base int) (Value, error) {
 	var n int64
 	var err error
@@ -388,6 +392,7 @@ func parseInt(s string, base int) (Value, error) {
 		goto Error
 	}
 
+	// Look for hex prefix.
 	if s[0] == '0' && len(s) > 1 && (s[1] == 'x' || s[1] == 'X') {
 		if base == 0 || base == 16 {
 			base = 16
@@ -401,8 +406,10 @@ func parseInt(s string, base int) (Value, error) {
 		goto Error
 
 	case 2 <= base && base <= 36:
-		// no-op
+	// valid base; nothing to do
+
 	case base == 0:
+		// Look for hex prefix.
 		switch {
 		case s[0] == '0' && len(s) > 1 && (s[1] == 'x' || s[1] == 'X'):
 			if len(s) < 3 {
@@ -420,6 +427,8 @@ func parseInt(s string, base int) (Value, error) {
 		goto Error
 	}
 
+	// Cutoff is the smallest number such that cutoff*base > maxInt64.
+	// Use compile-time constants for common cases.
 	switch base {
 	case 10:
 		cutoff = math.MaxInt64/10 + 1
@@ -432,6 +441,7 @@ func parseInt(s string, base int) (Value, error) {
 	maxVal = math.MaxInt64
 	for ; i < len(s); i++ {
 		if n >= cutoff {
+			// n*base overflows
 			return parseLargeInt(float64(n), s[i:], base, sign)
 		}
 		v := digitVal(s[i])
@@ -442,6 +452,7 @@ func parseInt(s string, base int) (Value, error) {
 
 		n1 := n + int64(v)
 		if n1 < n || n1 > maxVal {
+			// n+v overflows
 			return parseLargeInt(float64(n)+float64(v), s[i+1:], base, sign)
 		}
 		n = n1
@@ -474,6 +485,7 @@ func parseLargeInt(n float64, s string, base int, sign bool) (Value, error) {
 	if sign {
 		n = -n
 	}
+	// We know it can't be represented as int, so use valueFloat instead of floatToValue
 	return valueFloat(n), nil
 }
 

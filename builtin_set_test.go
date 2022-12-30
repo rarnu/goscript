@@ -40,7 +40,7 @@ func ExampleRuntime_ExportTo_setToMap() {
 		panic(err)
 	}
 	fmt.Println(m)
-	// 输出: map[1:{} 2:{} 3:{}]
+	// Output: map[1:{} 2:{} 3:{}]
 }
 
 func ExampleRuntime_ExportTo_setToSlice() {
@@ -57,7 +57,7 @@ func ExampleRuntime_ExportTo_setToSlice() {
 		panic(err)
 	}
 	fmt.Println(a)
-	// 输出: [1 2 3]
+	// Output: [1 2 3]
 }
 
 func TestSetExportToSliceCircular(t *testing.T) {
@@ -103,7 +103,7 @@ func TestSetExportToArrayMismatchedLengths(t *testing.T) {
 
 func TestSetExportToNilMap(t *testing.T) {
 	vm := New()
-	var m map[int]any
+	var m map[int]interface{}
 	res, err := vm.RunString("new Set([1])")
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestSetExportToNilMap(t *testing.T) {
 
 func TestSetExportToNonNilMap(t *testing.T) {
 	vm := New()
-	m := map[int]any{
+	m := map[int]interface{}{
 		2: true,
 	}
 	res, err := vm.RunString("new Set([1])")
@@ -139,4 +139,42 @@ func TestSetExportToNonNilMap(t *testing.T) {
 	if _, exists := m[1]; !exists {
 		t.Fatal(m)
 	}
+}
+
+func TestSetGetAdderGetIteratorOrder(t *testing.T) {
+	const SCRIPT = `
+	let getterCalled = 0;
+
+	class S extends Set {
+	    get add() {
+	        getterCalled++;
+	        return null;
+	    }
+	}
+
+	let getIteratorCalled = 0;
+
+	let iterable = {};
+	iterable[Symbol.iterator] = () => {
+	    getIteratorCalled++
+	    return {
+	        next: 1
+	    };
+	}
+
+	let thrown = false;
+
+	try {
+	    new S(iterable);
+	} catch (e) {
+	    if (e instanceof TypeError) {
+	        thrown = true;
+	    } else {
+	        throw e;
+	    }
+	}
+
+	thrown && getterCalled === 1 && getIteratorCalled === 0;
+	`
+	testScript(SCRIPT, valueTrue, t)
 }

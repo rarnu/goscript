@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestFilePosition(t *testing.T) {
+func TestPosition(t *testing.T) {
 	const SRC = `line1
 line2
 line3`
@@ -61,6 +61,9 @@ func TestGetSourceFilename(t *testing.T) {
 		{"../test.js", "/somewhere/else/base.js", "/somewhere/test.js"},
 		{"../test.js", "file:///somewhere/else/base.js", "file:///somewhere/test.js"},
 		{"../test.js", "https://example.com/somewhere/else/base.js", "https://example.com/somewhere/test.js"},
+		{"\ntest.js", "base123.js", "test.js"},
+		{"\rtest2.js\t\n  ", "base123.js", "test2.js"},
+		// TODO find something that won't parse
 	}
 	for _, test := range tests {
 		resultURL := ResolveSourcemapURL(test.basename, test.source)

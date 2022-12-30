@@ -124,11 +124,13 @@ const (
 	INSTANCEOF
 
 	ESCAPED_RESERVED_WORD
-
 	// Non-reserved keywords below
 
 	LET
 	STATIC
+	ASYNC
+	AWAIT
+	YIELD
 )
 
 var token2string = [...]string{
@@ -211,6 +213,9 @@ var token2string = [...]string{
 	CASE:                        "case",
 	VOID:                        "void",
 	WITH:                        "with",
+	ASYNC:                       "async",
+	AWAIT:                       "await",
+	YIELD:                       "yield",
 	CONST:                       "const",
 	WHILE:                       "while",
 	BREAK:                       "break",
@@ -232,45 +237,164 @@ var token2string = [...]string{
 	INSTANCEOF:                  "instanceof",
 }
 
-var keywordTable = map[string]keyword{
-	"if":         {token: IF},
-	"in":         {token: IN},
-	"do":         {token: DO},
-	"var":        {token: VAR},
-	"for":        {token: FOR},
-	"new":        {token: NEW},
-	"try":        {token: TRY},
-	"this":       {token: THIS},
-	"else":       {token: ELSE},
-	"case":       {token: CASE},
-	"void":       {token: VOID},
-	"with":       {token: WITH},
-	"while":      {token: WHILE},
-	"break":      {token: BREAK},
-	"catch":      {token: CATCH},
-	"throw":      {token: THROW},
-	"return":     {token: RETURN},
-	"typeof":     {token: TYPEOF},
-	"delete":     {token: DELETE},
-	"switch":     {token: SWITCH},
-	"default":    {token: DEFAULT},
-	"finally":    {token: FINALLY},
-	"function":   {token: FUNCTION},
-	"continue":   {token: CONTINUE},
-	"debugger":   {token: DEBUGGER},
-	"instanceof": {token: INSTANCEOF},
-	"const":      {token: CONST},
-	"class":      {token: CLASS},
-	"enum":       {token: KEYWORD, futureKeyword: true},
-	"export":     {token: KEYWORD, futureKeyword: true},
-	"extends":    {token: EXTENDS},
-	"import":     {token: KEYWORD, futureKeyword: true},
-	"super":      {token: SUPER},
-	"let":        {token: LET, strict: true},
-	"static":     {token: STATIC, strict: true},
-	"await":      {token: KEYWORD},
-	"yield":      {token: KEYWORD},
-	"false":      {token: BOOLEAN},
-	"true":       {token: BOOLEAN},
-	"null":       {token: NULL},
+var keywordTable = map[string]_keyword{
+	"if": {
+		token: IF,
+	},
+	"in": {
+		token: IN,
+	},
+	"do": {
+		token: DO,
+	},
+	"var": {
+		token: VAR,
+	},
+	"for": {
+		token: FOR,
+	},
+	"new": {
+		token: NEW,
+	},
+	"try": {
+		token: TRY,
+	},
+	"this": {
+		token: THIS,
+	},
+	"else": {
+		token: ELSE,
+	},
+	"case": {
+		token: CASE,
+	},
+	"void": {
+		token: VOID,
+	},
+	"with": {
+		token: WITH,
+	},
+	"async": {
+		token: ASYNC,
+	},
+	"while": {
+		token: WHILE,
+	},
+	"break": {
+		token: BREAK,
+	},
+	"catch": {
+		token: CATCH,
+	},
+	"throw": {
+		token: THROW,
+	},
+	"return": {
+		token: RETURN,
+	},
+	"typeof": {
+		token: TYPEOF,
+	},
+	"delete": {
+		token: DELETE,
+	},
+	"switch": {
+		token: SWITCH,
+	},
+	"default": {
+		token: DEFAULT,
+	},
+	"finally": {
+		token: FINALLY,
+	},
+	"function": {
+		token: FUNCTION,
+	},
+	"continue": {
+		token: CONTINUE,
+	},
+	"debugger": {
+		token: DEBUGGER,
+	},
+	"instanceof": {
+		token: INSTANCEOF,
+	},
+	"const": {
+		token: CONST,
+	},
+	"class": {
+		token: CLASS,
+	},
+	"enum": {
+		token:         KEYWORD,
+		futureKeyword: true,
+	},
+	"export": {
+		token:         KEYWORD,
+		futureKeyword: true,
+	},
+	"extends": {
+		token: EXTENDS,
+	},
+	"import": {
+		token:         KEYWORD,
+		futureKeyword: true,
+	},
+	"super": {
+		token: SUPER,
+	},
+	/*
+		"implements": {
+			token:         KEYWORD,
+			futureKeyword: true,
+			strict:        true,
+		},
+		"interface": {
+			token:         KEYWORD,
+			futureKeyword: true,
+			strict:        true,
+		},*/
+	"let": {
+		token:  LET,
+		strict: true,
+	},
+	/*"package": {
+		token:         KEYWORD,
+		futureKeyword: true,
+		strict:        true,
+	},
+	"private": {
+		token:         KEYWORD,
+		futureKeyword: true,
+		strict:        true,
+	},
+	"protected": {
+		token:         KEYWORD,
+		futureKeyword: true,
+		strict:        true,
+	},
+	"public": {
+		token:         KEYWORD,
+		futureKeyword: true,
+		strict:        true,
+	},*/
+	"static": {
+		token:  STATIC,
+		strict: true,
+	},
+	"await": {
+		token: AWAIT,
+	},
+	"yield": {
+		token: YIELD,
+	},
+	"false": {
+		token: BOOLEAN,
+	},
+	"true": {
+		token: BOOLEAN,
+	},
+	"null": {
+		token: NULL,
+	},
 }

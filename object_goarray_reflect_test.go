@@ -6,7 +6,7 @@ import (
 
 func TestGoReflectArray(t *testing.T) {
 	vm := New()
-	_ = vm.Set("a", [...]int{1, 2, 3})
+	vm.Set("a", [...]int{1, 2, 3})
 	_, err := vm.RunString(`
 	if (!Array.isArray(a)) {
 		throw new Error("isArray() returned false");
@@ -29,7 +29,7 @@ func TestGoReflectArray(t *testing.T) {
 
 func TestGoReflectArraySort(t *testing.T) {
 	vm := New()
-	_ = vm.Set("a", [...]int{3, 1, 2})
+	vm.Set("a", [...]int{3, 1, 2})
 	v, err := vm.RunString(`
 		a.sort();
 		if (a[0] !== 1 || a[1] !== 2 || a[2] !== 3) {
@@ -144,6 +144,9 @@ func TestGoReflectArrayCopyOnChange(t *testing.T) {
 		}
 	})
 
+	// The copy-on-change mechanism doesn't apply to the types below because the contained values are references.
+	// These tests are here for completeness and to prove that the behaviour is consistent.
+
 	t.Run("[]I", func(t *testing.T) {
 		type I interface {
 			Get() string
@@ -157,8 +160,8 @@ func TestGoReflectArrayCopyOnChange(t *testing.T) {
 		}
 	})
 
-	t.Run("[]any", func(t *testing.T) {
-		a := []any{&testGoReflectMethod_O{Test: "1"}, &testGoReflectMethod_O{Test: "2"}}
+	t.Run("[]interface{}", func(t *testing.T) {
+		a := []interface{}{&testGoReflectMethod_O{Test: "1"}, &testGoReflectMethod_O{Test: "2"}}
 
 		_, err = fn(nil, vm.ToValue(a))
 		if err != nil {
@@ -219,9 +222,9 @@ func TestCopyOnChangeReflectSlice(t *testing.T) {
 		}
 	})
 
-	t.Run("[]any", func(t *testing.T) {
+	t.Run("[]interface{}", func(t *testing.T) {
 		type S struct {
-			A []any
+			A []interface{}
 		}
 		var s S
 		_, err := fn(nil, vm.ToValue(&s))
@@ -243,7 +246,7 @@ func TestCopyOnChangeSort(t *testing.T) {
 	}{{"2"}, {"1"}}
 
 	vm := New()
-	_ = vm.Set("a", &a)
+	vm.Set("a", &a)
 
 	_, err := vm.RunString(`
 		let a0 = a[0];
@@ -280,7 +283,7 @@ func (a testStringerArray) String() string {
 func TestReflectArrayToString(t *testing.T) {
 	vm := New()
 	var a testStringerArray
-	_ = vm.Set("a", &a)
+	vm.Set("a", &a)
 	res, err := vm.RunString("`${a}`")
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +293,7 @@ func TestReflectArrayToString(t *testing.T) {
 	}
 
 	var a1 [2]byte
-	_ = vm.Set("a", &a1)
+	vm.Set("a", &a1)
 	res, err = vm.RunString("`${a}`")
 	if err != nil {
 		t.Fatal(err)

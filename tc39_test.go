@@ -3,7 +3,6 @@ package goscript
 import (
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"io"
 	"os"
 	"path"
@@ -12,22 +11,26 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 const (
-	tc39MaxTestGroupSize = 8000
-	tc39BASE             = "testdata/test262"
+	tc39BASE = "testdata/test262"
 )
 
 var (
-	invalidFormatError = errors.New("invalid file format")
+	invalidFormatError = errors.New("Invalid file format")
+
 	ignorableTestError = newSymbol(stringEmpty)
 )
 
 var (
 	skipPrefixes prefixList
-	skipList     = map[string]bool{
-		// 已过期的问题
+
+	skipList = map[string]bool{
+
+		// out-of-date (https://github.com/tc39/test262/issues/3407)
 		"test/language/expressions/prefix-increment/S11.4.4_A6_T3.js":        true,
 		"test/language/expressions/prefix-increment/S11.4.4_A6_T2.js":        true,
 		"test/language/expressions/prefix-increment/S11.4.4_A6_T1.js":        true,
@@ -75,27 +78,27 @@ var (
 		"test/language/expressions/compound-assignment/S11.13.2_A7.2_T1.js":  true,
 		"test/language/expressions/assignment/S11.13.1_A7_T3.js":             true,
 
-		// 时区相关
+		// timezone
 		"test/built-ins/Date/prototype/toISOString/15.9.5.43-0-8.js":  true,
 		"test/built-ins/Date/prototype/toISOString/15.9.5.43-0-9.js":  true,
 		"test/built-ins/Date/prototype/toISOString/15.9.5.43-0-10.js": true,
 
-		// 浮点数计算相关
+		// floating point date calculations
 		"test/built-ins/Date/UTC/fp-evaluation-order.js": true,
 
-		// 正则表达式中的整型量限制
+		// quantifier integer limit in regexp
 		"test/built-ins/RegExp/quantifier-integer-limit.js": true,
 
-		// 函数相关
+		// GetFunctionRealm
 		"test/built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js": true,
 
-		// 使用过期的 __lookupGetter__/__lookupSetter__
+		// Uses deprecated __lookupGetter__/__lookupSetter__
 		"test/language/expressions/class/elements/private-getter-is-not-a-own-property.js": true,
 		"test/language/expressions/class/elements/private-setter-is-not-a-own-property.js": true,
 		"test/language/statements/class/elements/private-setter-is-not-a-own-property.js":  true,
 		"test/language/statements/class/elements/private-getter-is-not-a-own-property.js":  true,
 
-		// 限制性的 unicode 正则语法
+		// restricted unicode regexp syntax
 		"test/built-ins/RegExp/unicode_restricted_quantifiable_assertion.js":         true,
 		"test/built-ins/RegExp/unicode_restricted_octal_escape.js":                   true,
 		"test/built-ins/RegExp/unicode_restricted_incomple_quantifier.js":            true,
@@ -109,9 +112,10 @@ var (
 		"test/built-ins/RegExp/unicode_restricted_character_class_escape.js":         true,
 		"test/annexB/built-ins/RegExp/prototype/compile/pattern-string-invalid-u.js": true,
 
-		// 因为 gocsript 解析器在 UTF-8 下工作，所以不可能传递包含无效的 UTF-16 字符的字符串
-		// 这可以通过将它们转义为 \uXXXX 来缓解，但是正因为如此，正则源变成了 `\uXXXX` 而不是 `<实际的 UTF-16 的 XXXX>`
-		// 产生的正则表达式的工作原理完全相同，但它导致这些测试失败
+		// Because goja parser works in UTF-8 it is not possible to pass strings containing invalid UTF-16 code points.
+		// This is mitigated by escaping them as \uXXXX, however because of this the RegExp source becomes
+		// `\uXXXX` instead of `<the actual UTF-16 code point of XXXX>`.
+		// The resulting RegExp will work exactly the same, but it causes these two tests to fail.
 		"test/annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js":  true,
 		"test/annexB/built-ins/RegExp/RegExp-trailing-escape-BMP.js": true,
 		"test/language/literals/regexp/S7.8.5_A1.4_T2.js":            true,
@@ -119,110 +123,81 @@ var (
 		"test/language/literals/regexp/S7.8.5_A2.1_T2.js":            true,
 		"test/language/literals/regexp/S7.8.5_A2.4_T2.js":            true,
 
-		// 代码生成器相关
-		"test/annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js":                                                        true,
-		"test/language/statements/switch/scope-lex-generator.js":                                                                      true,
-		"test/language/expressions/in/rhs-yield-present.js":                                                                           true,
-		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-yield-expression.js":                                true,
-		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-generator-function-declaration.js":                  true,
-		"test/built-ins/TypedArrayConstructors/ctors/object-arg/as-generator-iterable-returns.js":                                     true,
-		"test/built-ins/Object/seal/seal-generatorfunction.js":                                                                        true,
-		"test/language/statements/class/syntax/class-declaration-computed-method-generator-definition.js":                             true,
-		"test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-yield-expression.js":                true,
-		"test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-generator-function-declaration.js":  true,
-		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-yield-expression.js":                        true,
-		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-generator-function-declaration.js":          true,
-		"test/language/statements/class/cpn-class-decl-computed-property-name-from-yield-expression.js":                               true,
-		"test/language/statements/class/cpn-class-decl-computed-property-name-from-generator-function-declaration.js":                 true,
-		"test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-yield-expression.js":                     true,
-		"test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-generator-function-declaration.js":       true,
-		"test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-yield-expression.js":                       true,
-		"test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-generator-function-declaration.js":         true,
-		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-yield-expression.js":                              true,
-		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-generator-function-declaration.js":                true,
-		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-yield-expression.js":                    true,
-		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-yield-expression.js":               true,
-		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-generator-function-declaration.js":      true,
-		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-generator-function-declaration.js": true,
-		"test/language/statements/class/static-init-arguments-methods.js":                                                             true,
-		"test/language/statements/class/static-init-arguments-functions.js":                                                           true,
-		"test/language/expressions/object/method-definition/static-init-await-reference-generator.js":                                 true,
-		"test/language/expressions/generators/static-init-await-binding.js":                                                           true,
-		"test/language/expressions/generators/static-init-await-reference.js":                                                         true,
-		"test/language/expressions/optional-chaining/member-expression.js":                                                            true,
-		"test/language/expressions/class/elements/private-generator-method-name.js":                                                   true,
-		"test/language/statements/class/elements/private-generator-method-name.js":                                                    true,
-		"test/language/expressions/in/private-field-rhs-yield-present.js":                                                             true,
-		"test/language/expressions/class/elements/private-static-generator-method-name.js":                                            true,
-		"test/language/expressions/class/elements/private-static-async-generator-method-name.js":                                      true,
-		"test/language/computed-property-names/class/static/generator-prototype.js":                                                   true,
-		"test/language/computed-property-names/class/method/constructor-can-be-generator.js":                                          true,
-		"test/language/computed-property-names/class/static/generator-constructor.js":                                                 true,
-		"test/language/computed-property-names/class/method/generator.js":                                                             true,
-		"test/language/computed-property-names/object/method/generator.js":                                                            true,
-		"test/language/destructuring/binding/syntax/destructuring-object-parameters-function-arguments-length.js":                     true,
-		"test/language/destructuring/binding/syntax/destructuring-array-parameters-function-arguments-length.js":                      true,
+		// generators
+		"test/annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js":                                                                        true,
+		"test/language/statements/switch/scope-lex-generator.js":                                                                                      true,
+		"test/language/expressions/in/rhs-yield-present.js":                                                                                           true,
+		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-yield-expression.js":                                                true,
+		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-generator-function-declaration.js":                                  true,
+		"test/built-ins/TypedArrayConstructors/ctors/object-arg/as-generator-iterable-returns.js":                                                     true,
+		"test/built-ins/Object/seal/seal-generatorfunction.js":                                                                                        true,
+		"test/language/statements/class/syntax/class-declaration-computed-method-generator-definition.js":                                             true,
+		"test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-yield-expression.js":                                true,
+		"test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-generator-function-declaration.js":                  true,
+		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-yield-expression.js":                                        true,
+		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-generator-function-declaration.js":                          true,
+		"test/language/statements/class/cpn-class-decl-computed-property-name-from-yield-expression.js":                                               true,
+		"test/language/statements/class/cpn-class-decl-computed-property-name-from-generator-function-declaration.js":                                 true,
+		"test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-yield-expression.js":                                     true,
+		"test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-generator-function-declaration.js":                       true,
+		"test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-yield-expression.js":                                       true,
+		"test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-generator-function-declaration.js":                         true,
+		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-yield-expression.js":                                              true,
+		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-generator-function-declaration.js":                                true,
+		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-yield-expression.js":                                    true,
+		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-yield-expression.js":                               true,
+		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-generator-function-declaration.js":                      true,
+		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-generator-function-declaration.js":                 true,
+		"test/language/statements/class/static-init-arguments-methods.js":                                                                             true,
+		"test/language/statements/class/static-init-arguments-functions.js":                                                                           true,
+		"test/language/expressions/object/method-definition/static-init-await-reference-generator.js":                                                 true,
+		"test/language/expressions/generators/static-init-await-binding.js":                                                                           true,
+		"test/language/expressions/generators/static-init-await-reference.js":                                                                         true,
+		"test/language/expressions/optional-chaining/member-expression.js":                                                                            true,
+		"test/language/expressions/class/elements/private-generator-method-name.js":                                                                   true,
+		"test/language/statements/class/elements/private-generator-method-name.js":                                                                    true,
+		"test/language/expressions/in/private-field-rhs-yield-present.js":                                                                             true,
+		"test/language/expressions/class/elements/private-static-generator-method-name.js":                                                            true,
+		"test/language/computed-property-names/class/static/generator-prototype.js":                                                                   true,
+		"test/language/computed-property-names/class/method/constructor-can-be-generator.js":                                                          true,
+		"test/language/computed-property-names/class/static/generator-constructor.js":                                                                 true,
+		"test/language/computed-property-names/class/method/generator.js":                                                                             true,
+		"test/language/computed-property-names/object/method/generator.js":                                                                            true,
+		"test/language/destructuring/binding/syntax/destructuring-object-parameters-function-arguments-length.js":                                     true,
+		"test/language/destructuring/binding/syntax/destructuring-array-parameters-function-arguments-length.js":                                      true,
+		"test/language/statements/class/elements/same-line-async-method-rs-static-generator-method-privatename-identifier-alt.js":                     true,
+		"test/language/expressions/class/elements/same-line-async-method-rs-static-generator-method-privatename-identifier.js":                        true,
+		"test/language/expressions/class/elements/same-line-async-method-rs-static-async-generator-method-privatename-identifier-alt.js":              true,
+		"test/language/expressions/class/elements/same-line-async-method-rs-static-async-generator-method-privatename-identifier.js":                  true,
+		"test/language/expressions/class/elements/same-line-async-method-rs-static-generator-method-privatename-identifier-alt.js":                    true,
+		"test/language/statements/class/elements/after-same-line-static-async-method-rs-static-generator-method-privatename-identifier.js":            true,
+		"test/language/statements/class/elements/after-same-line-static-async-method-rs-static-generator-method-privatename-identifier-alt.js":        true,
+		"test/language/statements/class/elements/after-same-line-static-async-method-rs-static-async-generator-method-privatename-identifier.js":      true,
+		"test/language/statements/class/elements/after-same-line-static-async-method-rs-static-async-generator-method-privatename-identifier-alt.js":  true,
+		"test/language/statements/class/elements/same-line-async-method-rs-static-generator-method-privatename-identifier.js":                         true,
+		"test/language/statements/class/elements/same-line-async-method-rs-static-async-generator-method-privatename-identifier.js":                   true,
+		"test/language/statements/class/elements/same-line-async-method-rs-static-async-generator-method-privatename-identifier-alt.js":               true,
+		"test/language/expressions/class/elements/after-same-line-static-async-method-rs-static-generator-method-privatename-identifier.js":           true,
+		"test/language/expressions/class/elements/after-same-line-static-async-method-rs-static-generator-method-privatename-identifier-alt.js":       true,
+		"test/language/expressions/class/elements/after-same-line-static-async-method-rs-static-async-generator-method-privatename-identifier-alt.js": true,
+		"test/language/expressions/class/elements/after-same-line-static-async-method-rs-static-async-generator-method-privatename-identifier.js":     true,
+		"test/built-ins/Object/seal/seal-asyncgeneratorfunction.js":                                                                                   true,
+		"test/language/statements/switch/scope-lex-async-generator.js":                                                                                true,
+		"test/language/statements/class/elements/private-async-generator-method-name.js":                                                              true,
+		"test/language/expressions/object/method-definition/static-init-await-binding-generator.js":                                                   true,
+		"test/language/expressions/class/elements/private-async-generator-method-name.js":                                                             true,
+		"test/language/comments/hashbang/function-constructor.js":                                                                                     true,
+		"test/language/expressions/async-generator/name.js":                                                                                           true,
 
-		// 异步相关
-		"test/language/eval-code/direct/async-func-decl-a-preceding-parameter-is-named-arguments-declare-arguments-and-assign.js":      true,
-		"test/language/statements/switch/scope-lex-async-generator.js":                                                                 true,
-		"test/language/statements/switch/scope-lex-async-function.js":                                                                  true,
-		"test/language/statements/for-of/head-lhs-async-invalid.js":                                                                    true,
-		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-async-arrow-function-expression.js":                  true,
-		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-await-expression.js":                                 true,
-		"test/language/statements/async-function/evaluation-body.js":                                                                   true,
-		"test/language/expressions/object/method-definition/object-method-returns-promise.js":                                          true,
-		"test/language/expressions/object/method-definition/async-super-call-param.js":                                                 true,
-		"test/language/expressions/object/method-definition/async-super-call-body.js":                                                  true,
-		"test/built-ins/Object/seal/seal-asyncgeneratorfunction.js":                                                                    true,
-		"test/built-ins/Object/seal/seal-asyncfunction.js":                                                                             true,
-		"test/built-ins/Object/seal/seal-asyncarrowfunction.js":                                                                        true,
-		"test/language/statements/for/head-init-async-of.js":                                                                           true,
-		"test/language/reserved-words/await-module.js":                                                                                 true,
-		"test/language/expressions/optional-chaining/optional-chain-async-square-brackets.js":                                          true,
-		"test/language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js":                           true,
-		"test/language/expressions/optional-chaining/member-expression-async-this.js":                                                  true,
-		"test/language/expressions/optional-chaining/member-expression-async-literal.js":                                               true,
-		"test/language/expressions/optional-chaining/member-expression-async-identifier.js":                                            true,
-		"test/language/expressions/optional-chaining/iteration-statement-for-await-of.js":                                              true,
-		"test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-async-arrow-function-expression.js":  true,
-		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-async-arrow-function-expression.js":          true,
-		"test/language/statements/class/cpn-class-decl-computed-property-name-from-async-arrow-function-expression.js":                 true,
-		"test/language/statements/class/cpn-class-decl-accessors-computed-property-name-from-async-arrow-function-expression.js":       true,
-		"test/language/expressions/class/cpn-class-expr-fields-computed-property-name-from-async-arrow-function-expression.js":         true,
-		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-async-arrow-function-expression.js":                true,
-		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-async-arrow-function-expression.js":      true,
-		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-async-arrow-function-expression.js": true,
-		"test/language/statements/let/static-init-await-binding-invalid.js":                                                            true,
-		"test/language/statements/labeled/static-init-invalid-await.js":                                                                true,
-		"test/language/statements/variable/dstr/obj-ptrn-elem-id-static-init-await-invalid.js":                                         true,
-		"test/language/statements/variable/static-init-await-binding-invalid.js":                                                       true,
-		"test/language/statements/variable/dstr/ary-ptrn-elem-id-static-init-await-invalid.js":                                         true,
-		"test/language/statements/try/static-init-await-binding-invalid.js":                                                            true,
-		"test/language/statements/function/static-init-await-binding-invalid.js":                                                       true,
-		"test/language/statements/const/static-init-await-binding-invalid.js":                                                          true,
-		"test/language/statements/class/static-init-await-binding-invalid.js":                                                          true,
-		"test/language/identifier-resolution/static-init-invalid-await.js":                                                             true,
-		"test/language/expressions/class/static-init-await-binding.js":                                                                 true,
-		"test/language/expressions/class/heritage-async-arrow-function.js":                                                             true,
-		"test/language/expressions/arrow-function/static-init-await-reference.js":                                                      true,
-		"test/language/expressions/arrow-function/static-init-await-binding.js":                                                        true,
-		"test/language/expressions/object/method-definition/static-init-await-binding-generator.js":                                    true,
-		"test/language/expressions/object/identifier-shorthand-static-init-await-invalid.js":                                           true,
-		"test/language/expressions/class/heritage-arrow-function.js":                                                                   true,
-		"test/language/expressions/class/elements/private-async-generator-method-name.js":                                              true,
-		"test/language/expressions/class/elements/private-async-method-name.js":                                                        true,
-		"test/language/statements/class/elements/private-async-generator-method-name.js":                                               true,
-		"test/language/statements/class/elements/private-async-method-name.js":                                                         true,
-		"test/language/expressions/in/private-field-rhs-await-present.js":                                                              true,
-		"test/language/expressions/class/elements/private-static-async-method-name.js":                                                 true,
+		// async iterator
+		"test/language/expressions/optional-chaining/iteration-statement-for-await-of.js": true,
 
-		// 遗意的数字符号相关
+		// legacy number literals
 		"test/language/literals/numeric/non-octal-decimal-integer.js": true,
 		"test/language/literals/string/S7.8.4_A4.3_T2.js":             true,
 		"test/language/literals/string/S7.8.4_A4.3_T1.js":             true,
 
-		// 整型分隔符相关
+		// integer separators
 		"test/language/expressions/object/cpn-obj-lit-computed-property-name-from-integer-separators.js":                  true,
 		"test/language/expressions/class/cpn-class-expr-accessors-computed-property-name-from-integer-separators.js":      true,
 		"test/language/statements/class/cpn-class-decl-fields-computed-property-name-from-integer-separators.js":          true,
@@ -233,32 +208,32 @@ var (
 		"test/language/expressions/class/cpn-class-expr-computed-property-name-from-integer-separators.js":                true,
 		"test/language/expressions/class/cpn-class-expr-fields-methods-computed-property-name-from-integer-separators.js": true,
 
-		// 大整型相关
+		// BigInt
 		"test/built-ins/Object/seal/seal-biguint64array.js": true,
 		"test/built-ins/Object/seal/seal-bigint64array.js":  true,
 
-		// 正则相关
+		// Regexp
 		"test/language/literals/regexp/invalid-range-negative-lookbehind.js":    true,
 		"test/language/literals/regexp/invalid-range-lookbehind.js":             true,
 		"test/language/literals/regexp/invalid-optional-negative-lookbehind.js": true,
 		"test/language/literals/regexp/invalid-optional-lookbehind.js":          true,
 
-		// 在分支中的 'in' 表达式
+		// FIXME bugs
+
+		// 'in' in a branch
 		"test/language/expressions/conditional/in-branch-1.js": true,
 
-		// 左侧表达式为 CoverParenthesizedExpression 时
+		// Left-hand side as a CoverParenthesizedExpression
 		"test/language/expressions/assignment/fn-name-lhs-cover.js": true,
 	}
 
 	featuresBlackList = []string{
 		"async-iteration",
 		"Symbol.asyncIterator",
-		"async-functions",
 		"BigInt",
 		"generators",
 		"String.prototype.replaceAll",
 		"resizable-arraybuffer",
-		"array-find-from-last",
 		"regexp-named-groups",
 		"regexp-dotall",
 		"regexp-unicode-property-escapes",
@@ -275,8 +250,6 @@ var (
 		"FinalizationRegistry",
 		"WeakRef",
 		"numeric-separator-literal",
-		"Object.fromEntries",
-		"Object.hasOwn",
 		"__getter__",
 		"__setter__",
 		"ShadowRealm",
@@ -284,7 +257,6 @@ var (
 		"error-cause",
 		"decorators",
 		"regexp-v-flag",
-		"hashbang",
 	}
 )
 
@@ -297,37 +269,41 @@ func init() {
 	}
 
 	skip(
-		// Unicode 14 支持
+		// Go 1.16 only supports unicode 13
 		"test/language/identifiers/start-unicode-14.",
 		"test/language/identifiers/part-unicode-14.",
 
-		// 异步
-		"test/language/eval-code/direct/async-",
-		"test/language/expressions/async-",
-		"test/language/expressions/await/",
-		"test/language/statements/async-function/",
+		// generators and async generators (harness/hidden-constructors.js)
 		"test/built-ins/Async",
-		"test/language/statements/class/elements/private-static-async-",
-		"test/language/statements/class/elements/wrapped-in-sc-rs-static-async-",
-		"test/language/expressions/class/elements/wrapped-in-sc-rs-static-async-",
-		"test/language/statements/class/elements/after-same-line-static-method-rs-static-async-",
-		"test/language/expressions/class/elements/after-same-line-static-method-rs-static-async-",
-		"test/language/statements/class/elements/after-same-line-method-rs-static-async-",
-		"test/language/expressions/class/elements/after-same-line-method-rs-static-async-",
-		"test/language/statements/class/elements/new-sc-line-method-rs-static-async-",
-		"test/language/expressions/class/elements/new-sc-line-method-rs-static-async-",
-		"test/language/statements/class/elements/new-no-sc-line-method-rs-static-async-",
-		"test/language/expressions/class/elements/new-no-sc-line-method-rs-static-async-",
-		"test/language/statements/class/elements/same-line-method-rs-static-async-",
-		"test/language/expressions/class/elements/same-line-method-rs-static-async-",
-		"test/language/statements/class/elements/regular-definitions-rs-static-async-",
-		"test/language/expressions/class/elements/regular-definitions-rs-static-async-",
-		"test/language/statements/class/elements/multiple-stacked-definitions-rs-static-async-",
-		"test/language/expressions/class/elements/multiple-stacked-definitions-rs-static-async-",
-		"test/language/statements/class/elements/multiple-definitions-rs-static-async-",
-		"test/language/expressions/class/elements/multiple-definitions-rs-static-async-",
 
-		// 代码生成器
+		// async generators
+		"test/language/statements/class/elements/wrapped-in-sc-rs-static-async-generator-",
+		"test/language/statements/class/elements/same-line-method-rs-static-async-generator-",
+		"test/language/statements/class/elements/regular-definitions-rs-static-async-generator-",
+		"test/language/statements/class/elements/private-static-async-generator-",
+		"test/language/statements/class/elements/new-sc-line-method-rs-static-async-generator-",
+		"test/language/statements/class/elements/multiple-stacked-definitions-rs-static-async-generator-",
+		"test/language/statements/class/elements/new-no-sc-line-method-rs-static-async-generator-",
+		"test/language/statements/class/elements/multiple-definitions-rs-static-async-generator-",
+		"test/language/statements/class/elements/after-same-line-static-method-rs-static-async-generator-",
+		"test/language/statements/class/elements/after-same-line-method-rs-static-async-generator-",
+		"test/language/statements/class/elements/after-same-line-static-method-rs-static-async-generator-",
+
+		"test/language/expressions/class/elements/wrapped-in-sc-rs-static-async-generator-",
+		"test/language/expressions/class/elements/same-line-method-rs-static-async-generator-",
+		"test/language/expressions/class/elements/regular-definitions-rs-static-async-generator-",
+		"test/language/expressions/class/elements/private-static-async-generator-",
+		"test/language/expressions/class/elements/new-sc-line-method-rs-static-async-generator-",
+		"test/language/expressions/class/elements/multiple-stacked-definitions-rs-static-async-generator-",
+		"test/language/expressions/class/elements/new-no-sc-line-method-rs-static-async-generator-",
+		"test/language/expressions/class/elements/multiple-definitions-rs-static-async-generator-",
+		"test/language/expressions/class/elements/after-same-line-static-method-rs-static-async-generator-",
+		"test/language/expressions/class/elements/after-same-line-method-rs-static-async-generator-",
+		"test/language/expressions/class/elements/after-same-line-static-method-rs-static-async-generator-",
+
+		"test/language/eval-code/direct/async-gen-",
+
+		// generators
 		"test/language/eval-code/direct/gen-",
 		"test/built-ins/GeneratorFunction/",
 		"test/built-ins/Function/prototype/toString/generator-",
@@ -352,18 +328,18 @@ func init() {
 		"test/language/statements/class/elements/multiple-definitions-rs-static-generator-",
 		"test/language/expressions/class/elements/multiple-definitions-rs-static-generator-",
 
-		// 大整型
+		// BigInt
 		"test/built-ins/TypedArrayConstructors/BigUint64Array/",
 		"test/built-ins/TypedArrayConstructors/BigInt64Array/",
 
-		// 限制性的 unicode 正则语法
+		// restricted unicode regexp syntax
 		"test/language/literals/regexp/u-",
 
-		// 在严格模式下，字符串中遗留的八进制转义
+		// legacy octal escape in strings in strict mode
 		"test/language/literals/string/legacy-octal-",
 		"test/language/literals/string/legacy-non-octal-",
 
-		// 模块
+		// modules
 		"test/language/export/",
 		"test/language/import/",
 		"test/language/module-code/",
@@ -392,7 +368,8 @@ type tc39TestCtx struct {
 	benchmark    tc39BenchmarkData
 	benchLock    sync.Mutex
 	sabStub      *Program
-	testQueue    []tc39Test
+	//lint:ignore U1000 Only used with race
+	testQueue []tc39Test
 }
 
 type TC39MetaNegative struct {
@@ -450,9 +427,7 @@ func parseTC39File(name string) (*tc39Meta, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
+	defer f.Close()
 
 	b, err := io.ReadAll(f)
 	if err != nil {
@@ -506,9 +481,9 @@ func (ctx *tc39TestCtx) runTC39Test(name, src string, meta *tc39Meta, t testing.
 	}()
 	vm := New()
 	_262 := vm.NewObject()
-	_ = _262.Set("detachArrayBuffer", ctx.detachArrayBuffer)
-	_ = _262.Set("createRealm", ctx.throwIgnorableTestError)
-	_ = _262.Set("evalScript", func(call FunctionCall) Value {
+	_262.Set("detachArrayBuffer", ctx.detachArrayBuffer)
+	_262.Set("createRealm", ctx.throwIgnorableTestError)
+	_262.Set("evalScript", func(call FunctionCall) Value {
 		script := call.Argument(0).String()
 		result, err := vm.RunString(script)
 		if err != nil {
@@ -516,9 +491,9 @@ func (ctx *tc39TestCtx) runTC39Test(name, src string, meta *tc39Meta, t testing.
 		}
 		return result
 	})
-	_ = vm.Set("$262", _262)
-	_ = vm.Set("IgnorableTestError", ignorableTestError)
-	_, _ = vm.RunProgram(ctx.sabStub)
+	vm.Set("$262", _262)
+	vm.Set("IgnorableTestError", ignorableTestError)
+	vm.RunProgram(ctx.sabStub)
 	var out []string
 	async := meta.hasFlag("async")
 	if async {
@@ -526,11 +501,11 @@ func (ctx *tc39TestCtx) runTC39Test(name, src string, meta *tc39Meta, t testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		_ = vm.Set("print", func(msg string) {
+		vm.Set("print", func(msg string) {
 			out = append(out, msg)
 		})
 	} else {
-		_ = vm.Set("print", t.Log)
+		vm.Set("print", t.Log)
 	}
 
 	err, early := ctx.runTC39Script(name, src, meta.Includes, vm)
@@ -619,6 +594,7 @@ func (ctx *tc39TestCtx) runTC39File(name string, t testing.TB) {
 	p := path.Join(ctx.base, name)
 	meta, src, err := parseTC39File(p)
 	if err != nil {
+		//t.Fatalf("Could not parse %s: %v", name, err)
 		t.Errorf("Could not parse %s: %v", name, err)
 		return
 	}
@@ -643,11 +619,13 @@ func (ctx *tc39TestCtx) runTC39File(name string, t testing.TB) {
 	hasRaw := meta.hasFlag("raw")
 
 	if hasRaw || !meta.hasFlag("onlyStrict") {
+		//log.Printf("Running normal test: %s", name)
 		t.Logf("Running normal test: %s", name)
 		ctx.runTC39Test(name, src, meta, t)
 	}
 
 	if !hasRaw && !meta.hasFlag("noStrict") {
+		//log.Printf("Running strict test: %s", name)
 		t.Logf("Running strict test: %s", name)
 		ctx.runTC39Test(name, "'use strict';\n"+src, meta, t)
 	}
@@ -685,9 +663,7 @@ func (ctx *tc39TestCtx) compile(base, name string) (*Program, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer func(f *os.File) {
-			_ = f.Close()
-		}(f)
+		defer f.Close()
 
 		b, err := io.ReadAll(f)
 		if err != nil {
@@ -784,9 +760,11 @@ func TestTC39(t *testing.T) {
 		base: tc39BASE,
 	}
 	ctx.init()
+	//ctx.enableBench = true
 
 	t.Run("tc39", func(t *testing.T) {
 		ctx.t = t
+		//ctx.runTC39File("test/language/types/number/8.5.1.js", t)
 		ctx.runTC39Tests("test/language")
 		ctx.runTC39Tests("test/built-ins")
 		ctx.runTC39Tests("test/annexB/built-ins/String/prototype/substr")
@@ -811,24 +789,4 @@ func TestTC39(t *testing.T) {
 			fmt.Printf("%s\t%d\n", item.name, item.duration/time.Millisecond)
 		}
 	}
-}
-
-func (ctx *tc39TestCtx) runTest(name string, f func(t *testing.T)) {
-	ctx.testQueue = append(ctx.testQueue, tc39Test{name: name, f: f})
-	if len(ctx.testQueue) >= tc39MaxTestGroupSize {
-		ctx.flush()
-	}
-}
-
-func (ctx *tc39TestCtx) flush() {
-	ctx.t.Run("tc39", func(t *testing.T) {
-		for _, tc := range ctx.testQueue {
-			tc := tc
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
-				tc.f(t)
-			})
-		}
-	})
-	ctx.testQueue = ctx.testQueue[:0]
 }

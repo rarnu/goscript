@@ -1,6 +1,8 @@
 package goscript
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestSubstr(t *testing.T) {
 	const SCRIPT = `

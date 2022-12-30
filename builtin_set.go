@@ -49,8 +49,8 @@ func (so *setObject) exportType() reflect.Type {
 	return setExportType
 }
 
-func (so *setObject) export(ctx *objectExportCtx) any {
-	a := make([]any, so.m.size)
+func (so *setObject) export(ctx *objectExportCtx) interface{} {
+	a := make([]interface{}, so.m.size)
 	ctx.put(so.val, a)
 	iter := so.m.newIter()
 	for i := 0; i < len(a); i++ {
@@ -209,19 +209,31 @@ func (r *Runtime) builtin_newSet(args []Value, newTarget *Object) *Object {
 	if len(args) > 0 {
 		if arg := args[0]; arg != nil && arg != _undefined && arg != _null {
 			adder := so.getStr("add", nil)
-			iter := r.getIterator(arg, nil)
+			stdArr := r.checkStdArrayIter(arg)
 			if adder == r.global.setAdder {
-				iter.iterate(func(item Value) {
-					so.m.set(item, nil)
-				})
+				if stdArr != nil {
+					for _, v := range stdArr.values {
+						so.m.set(v, nil)
+					}
+				} else {
+					r.getIterator(arg, nil).iterate(func(item Value) {
+						so.m.set(item, nil)
+					})
+				}
 			} else {
 				adderFn := toMethod(adder)
 				if adderFn == nil {
 					panic(r.NewTypeError("Set.add in missing"))
 				}
-				iter.iterate(func(item Value) {
-					adderFn(FunctionCall{This: o, Arguments: []Value{item}})
-				})
+				if stdArr != nil {
+					for _, item := range stdArr.values {
+						adderFn(FunctionCall{This: o, Arguments: []Value{item}})
+					}
+				} else {
+					r.getIterator(arg, nil).iterate(func(item Value) {
+						adderFn(FunctionCall{This: o, Arguments: []Value{item}})
+					})
+				}
 			}
 		}
 	}

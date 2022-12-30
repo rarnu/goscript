@@ -38,19 +38,32 @@ var (
 )
 
 /*
-d 必须大于 0，并且不能是无穷大
+d must be > 0 and must not be Inf
 
-模式:
+mode:
 
-	0 ==> 产生最短的字符串，并四舍五入为 d
-	1 ==> 与 0 一样，但是有 Steele & White 停止规则
-		例：在 IEEE P754 算术中 , 模式 0 输出 1e23，而模式 1 输出 9.999999999999999e22.
-	2 ==> 从 1 和 ndigits 中取其大者作为有效数字. 它将给出一个与 ecvt 相似的输出，但是后面的 0 会受位数限制
-	3 ==> 与 2 一样，但是此时 ndigits 可以是负数
-	4,5 ==> 分别类似于 2 和 3 ，但在四舍五入模式通过对模式 0 的测试，可能会返回一个较短的字符串，四舍五入为 d
-	6-9 ==> 调试模式，类似于模式 4 但是带有快速浮点估算（不要在正式开发中使用）
+	0 ==> shortest string that yields d when read in
+		and rounded to nearest.
+	1 ==> like 0, but with Steele & White stopping rule;
+		e.g. with IEEE P754 arithmetic , mode 0 gives
+		1e23 whereas mode 1 gives 9.999999999999999e22.
+	2 ==> max(1,ndigits) significant digits.  This gives a
+		return value similar to that of ecvt, except
+		that trailing zeros are suppressed.
+	3 ==> through ndigits past the decimal point.  This
+		gives a return value similar to that from fcvt,
+		except that trailing zeros are suppressed, and
+		ndigits can be negative.
+	4,5 ==> similar to 2 and 3, respectively, but (in
+		round-nearest mode) with the tests of mode 0 to
+		possibly return a shorter string that rounds to d.
+		With IEEE arithmetic and compilation with
+		-DHonor_FLT_ROUNDS, modes 4 and 5 behave the same
+		as modes 2 and 3 when FLT_ROUNDS != 1.
+	6-9 ==> Debugging modes similar to mode - 4:  don't try
+		fast floating-point estimate (if applicable).
 
-	如果模式值在 0-9 以外，将被当作 0 处理
+	Values of mode other than 0-9 are treated as mode 0.
 */
 func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, int) {
 	startPos := len(buf)
@@ -69,7 +82,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		i -= bias
 		denorm = false
 	} else {
-		/* d 是补位的 */
+		/* d is denormalized */
 		i = bbits + be + (bias + (p - 1) - 1)
 		var x uint64
 		if i > 32 {
@@ -81,11 +94,11 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		i -= (bias + (p - 1) - 1) + 1
 		denorm = true
 	}
-	/* 在这一点上，d = f*2^i，其中 1 <= f < 2，d2 是 f 的近似值 */
+	/* At this point d = f*2^i, where 1 <= f < 2.  d2 is an approximation of f. */
 	ds := (d2-1.5)*0.289529654602168 + 0.1760912590558 + float64(i)*0.301029995663981
 	k := int(ds)
 	if ds < 0.0 && ds != float64(k) {
-		k-- /* 预期 k = floor(ds) */
+		k-- /* want k = floor(ds) */
 	}
 	k_check := true
 	if k >= 0 && k < len(tens) {
@@ -94,10 +107,11 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		}
 		k_check = false
 	}
-	/* 此时 floor(log10(d)) <= k <= floor(log10(d))+1，如果 k_check 为 0，就可以保证 k = floor(log10(d)) */
+	/* At this point floor(log10(d)) <= k <= floor(log10(d))+1.
+	   If k_check is zero, we're guaranteed that k = floor(log10(d)). */
 	j := bbits - i - 1
 	var b2, s2, b5, s5 int
-	/* 这里 d = b/2^j，其中 b 是一个奇数整数 */
+	/* At this point d = b/2^j, where b is an odd integer. */
 	if j >= 0 {
 		b2 = 0
 		s2 = j
@@ -114,7 +128,8 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		b5 = -k
 		s5 = 0
 	}
-	/* 此时 d/10^k = (b * 2^b2 * 5^b5) / (2^s2 * 5^s5), 其中 b 是一个奇数整数，b2 >= 0, b5 >= 0, s2 >= 0, s5 >= 0 */
+	/* At this point d/10^k = (b * 2^b2 * 5^b5) / (2^s2 * 5^s5), where b is an odd integer,
+	   b2 >= 0, b5 >= 0, s2 >= 0, and s5 >= 0. */
 	if mode < 0 || mode > 9 {
 		mode = 0
 	}
@@ -145,21 +160,25 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		ilim = i
 		ilim1 = i - 1
 	}
-	/* ilim 和 ilim1 是我们想要的最大有效位数，基于 k 和 ndigits。当发现 k 被计算得太高时，以 ilim1 限制的值为准 */
+	/* ilim is the maximum number of significant digits we want, based on k and ndigits. */
+	/* ilim1 is the maximum number of significant digits we want, based on k and ndigits,
+	   when it turns out that k was computed too high by one. */
 	fast_failed := false
 	if ilim >= 0 && ilim <= quick_max && try_quick {
-		/* 尝试用浮点算术来解决 */
+
+		/* Try to get by with floating-point arithmetic. */
+
 		i = 0
 		d2 = d
 		k0 := k
 		ilim0 := ilim
-		ieps := 2 /* 保守值 */
-		/* 用 d 除以 10^k, 保持跟踪舍入误差，避免溢出 */
+		ieps := 2 /* conservative */
+		/* Divide d by 10^k, keeping track of the roundoff error and avoiding overflows. */
 		if k > 0 {
 			ds = tens[k&0xf]
 			j = k >> 4
 			if (j & bletch) != 0 {
-				/* 防止溢出 */
+				/* prevent overflows */
 				j &= bletch - 1
 				d /= bigtens[len(bigtens)-1]
 				ieps++
@@ -182,7 +201,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 				j >>= 1
 			}
 		}
-		/* 检查 k 的计算是否正确 */
+		/* Check that k was computed correctly. */
 		if k_check && d < 1.0 && ilim > 0 {
 			if ilim1 <= 0 {
 				fast_failed = true
@@ -193,7 +212,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 				ieps++
 			}
 		}
-		/* 累积误差 eps 界限 */
+		/* eps bounds the cumulative error. */
 		eps := float64(ieps)*d + 7.0
 		eps = setWord0(eps, _word0(eps)-(p-1)*exp_msk1)
 		if ilim == 0 {
@@ -212,7 +231,9 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		if !fast_failed {
 			fast_failed = true
 			if leftright {
-				/* 使用 Steele & White 算法，只生成所需的数字 */
+				/* Use Steele & White method of only
+				 * generating digits needed.
+				 */
 				eps = 0.5/tens[ilim-1] - eps
 				for i = 0; ; {
 					l := int64(d)
@@ -233,7 +254,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 					d *= 10.0
 				}
 			} else {
-				/* 生成 ilim，然后修复它 */
+				/* Generate ilim digits, then fix them up. */
 				eps *= tens[ilim-1]
 				for i = 1; ; i++ {
 					l := int64(d)
@@ -261,8 +282,9 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		}
 	}
 
-	/* 取一个小整数 */
+	/* Do we have a "small" integer? */
 	if be >= 0 && k <= int_max {
+		/* Yes. */
 		ds = tens[k]
 		if ndigits < 0 && ilim <= 0 {
 			if ilim < 0 || d < 5*ds || (!biasUp && d == 5*ds) {
@@ -303,7 +325,8 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			} else {
 				i = 1 + p - bbits
 			}
-			/* i 为 1，加上 d 尾部的零位数，因此 (2^m2 * 5^m5) / (2^(s2+i) * 5^s5) = (1/2 lsb of d)/10^k */
+			/* i is 1 plus the number of trailing zero bits in d's significand. Thus,
+			   (2^m2 * 5^m5) / (2^(s2+i) * 5^s5) = (1/2 lsb of d)/10^k. */
 		} else {
 			j = ilim - 1
 			if m5 >= j {
@@ -319,14 +342,17 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 				m2 -= i
 				i = 0
 			}
-			/* (2^m2 * 5^m5) / (2^(s2+i) * 5^s5) = (1/2 * 10^(1-ilim))/10^k */
+			/* (2^m2 * 5^m5) / (2^(s2+i) * 5^s5) = (1/2 * 10^(1-ilim))/10^k. */
 		}
 		b2 += i
 		s2 += i
 		mhi = big.NewInt(1)
+		/* (mhi * 2^m2 * 5^m5) / (2^s2 * 5^s5) = one-half of last printed (when mode >= 2) or
+		   input (when mode < 2) significant digit, divided by 10^k. */
 	}
 
-	/* 我们仍有 d/10^k = (b * 2^b2 * 5^b5) / (2^s2 * 5^s5) 。在不改变等式的前提下，减少 b2, m2, s2 的公因数 */
+	/* We still have d/10^k = (b * 2^b2 * 5^b5) / (2^s2 * 5^s5).  Reduce common factors in
+	   b2, m2, and s2 without changing the equalities. */
 	if m2 > 0 && s2 > 0 {
 		if m2 < s2 {
 			i = m2
@@ -339,7 +365,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 	}
 
 	b := new(big.Int).SetBytes(dblBits)
-	/* 将 b5 折叠成 b m5 折叠成 mhi */
+	/* Fold b5 into b and m5 into mhi. */
 	if b5 > 0 {
 		if leftright {
 			if m5 > 0 {
@@ -354,24 +380,36 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			pow5mult(b, b5)
 		}
 	}
+	/* Now we have d/10^k = (b * 2^b2) / (2^s2 * 5^s5) and
+	   (mhi * 2^m2) / (2^s2 * 5^s5) = one-half of last printed or input significant digit, divided by 10^k. */
+
 	S := big.NewInt(1)
 	if s5 > 0 {
 		pow5mult(S, s5)
 	}
+	/* Now we have d/10^k = (b * 2^b2) / (S * 2^s2) and
+	   (mhi * 2^m2) / (S * 2^s2) = one-half of last printed or input significant digit, divided by 10^k. */
 
-	/* 检查 d 是 2 的归一化幂的特殊情况 */
+	/* Check for special case that d is a normalized power of 2. */
 	spec_case := false
 	if mode < 2 {
-		if (_word1(d) == 0) && ((_word0(d) & bndry_mask) == 0) && ((_word0(d) & (exp_mask & (exp_mask << 1))) != 0) {
+		if (_word1(d) == 0) && ((_word0(d) & bndry_mask) == 0) &&
+			((_word0(d) & (exp_mask & (exp_mask << 1))) != 0) {
+			/* The special case.  Here we want to be within a quarter of the last input
+			   significant digit instead of one half of it when the decimal output string's value is less than d.  */
 			b2 += log2P
 			s2 += log2P
 			spec_case = true
 		}
 	}
 
-	/* 为方便计算商数进行编排，必要时向左移，使除数有 4 个前导 0 位。
-	此处有必要一劳永逸地计算 S 的前 28 位，并将它们和一个移位传递给 quorem，这样它就可以做移位和 ors 来计算 q 的分子。
-	*/
+	/* Arrange for convenient computation of quotients:
+	 * shift left if necessary so divisor has 4 leading 0 bits.
+	 *
+	 * Perhaps we should just compute leading 28 bits of S once
+	 * and for all and pass them and a shift to quorem, so it
+	 * can do shifts and ors to compute the numerator for q.
+	 */
 	var zz int
 	if s5 != 0 {
 		S_bytes := S.Bytes()
@@ -390,7 +428,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 	if i != 0 {
 		i = 32 - i
 	}
-	/* i 是 S*2^s2 中前导 0 位的数量 */
+	/* i is the number of leading zero bits in the most significant word of S*2^s2. */
 	if i > 4 {
 		i -= 4
 		b2 += i
@@ -402,32 +440,36 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 		m2 += i
 		s2 += i
 	}
-	/* 现在 S*2^s2 中有了 4 个 0 位 */
+	/* Now S*2^s2 has exactly four leading zero bits in its most significant word. */
 	if b2 > 0 {
 		b = b.Lsh(b, uint(b2))
 	}
 	if s2 > 0 {
 		S.Lsh(S, uint(s2))
 	}
+	/* Now we have d/10^k = b/S and
+	   (mhi * 2^m2) / S = maximum acceptable error, divided by 10^k. */
 	if k_check {
 		if b.Cmp(S) < 0 {
 			k--
-			b.Mul(b, big10)
+			b.Mul(b, big10) /* we botched the k estimate */
 			if leftright {
 				mhi.Mul(mhi, big10)
 			}
 			ilim = ilim1
 		}
 	}
-	/* 此时 1 <= d/10^k = b/S < 10 */
+	/* At this point 1 <= d/10^k = b/S < 10. */
 
 	if ilim <= 0 && mode > 2 {
-		/* 固定模式的输出，d 小于这个模式下的最小非零输出。输出零或最小非零输出，取决于哪个更接近于 d */
+		/* We're doing fixed-mode output and d is less than the minimum nonzero output in this mode.
+		   Output either zero or the minimum nonzero output depending on which is closer to d. */
 		if ilim >= 0 {
 			i = b.Cmp(S.Mul(S, big5))
 		}
 		if ilim < 0 || i < 0 || i == 0 && !biasUp {
-			/* 始终发出至少一个数字。如果在当前模式下，数字看起来是 0，则发射 '0'，并将解码器设置为 1 */
+			/* Always emit at least one digit.  If the number appears to be zero
+			   using the current mode, then emit one '0' digit and set decpt to 1. */
 			buf = buf[:startPos]
 			buf = append(buf, '0')
 			return buf, 1
@@ -443,19 +485,26 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			mhi.Lsh(mhi, uint(m2))
 		}
 
-		/* 检查特殊情况，d 是 2 的归一化幂 */
+		/* Compute mlo -- check for special case
+		 * that d is a normalized power of 2.
+		 */
 
 		mlo = mhi
 		if spec_case {
 			mhi = mlo
 			mhi = new(big.Int).Lsh(mhi, log2P)
 		}
-
+		/* mlo/S = maximum acceptable error, divided by 10^k, if the output is less than d. */
+		/* mhi/S = maximum acceptable error, divided by 10^k, if the output is greater than d. */
 		var z, delta big.Int
 		for i = 1; ; i++ {
 			z.DivMod(b, S, b)
 			dig = byte(z.Int64() + '0')
+			/* Do we yet have the shortest decimal string
+			 * that will round to d?
+			 */
 			j = b.Cmp(mlo)
+			/* j is b/S compared with mlo/S. */
 			delta.Sub(S, mhi)
 			var j1 int
 			if delta.Sign() <= 0 {
@@ -463,6 +512,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			} else {
 				j1 = b.Cmp(&delta)
 			}
+			/* j1 is b/S compared with 1 - mhi/S. */
 			if (j1 == 0) && (mode == 0) && ((_word1(d) & 1) == 0) {
 				if dig == '9' {
 					var flag bool
@@ -481,7 +531,8 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			}
 			if (j < 0) || ((j == 0) && (mode == 0) && ((_word1(d) & 1) == 0)) {
 				if j1 > 0 {
-					/* 无论是 dig 还是 dig+1 都可以作为最小有效的小数位。使用哪个取决于哪个会产生更接近 d 的小数值 */
+					/* Either dig or dig+1 would work here as the least significant decimal digit.
+					   Use whichever would produce a decimal value closer to d. */
 					b.Lsh(b, 1)
 					j1 = b.Cmp(S)
 					if (j1 > 0) || (j1 == 0 && (((dig & 1) == 1) || biasUp)) {
@@ -501,7 +552,7 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 				return buf, k + 1
 			}
 			if j1 > 0 {
-				if dig == '9' {
+				if dig == '9' { /* possible if i == 1 */
 					buf = append(buf, '9')
 					buf, flag := roundOff(buf, startPos)
 					if flag {
@@ -538,6 +589,8 @@ func ftoa(d float64, mode int, biasUp bool, ndigits int, buf []byte) ([]byte, in
 			b.Mul(b, big10)
 		}
 	}
+	/* Round off last digit */
+
 	b.Lsh(b, 1)
 	j = b.Cmp(S)
 	if (j > 0) || (j == 0 && (((dig & 1) == 1) || biasUp)) {
@@ -600,7 +653,7 @@ func stripTrailingZeroes(buf []byte, startPos int) []byte {
 	return buf[:bl+1]
 }
 
-/* b = b * 5^k.  k 不能是负数 */
+/* Set b = b * 5^k.  k must be nonnegative. */
 func pow5mult(b *big.Int, k int) *big.Int {
 	if k < (1 << (len(pow5Cache) + 2)) {
 		i := k & 3

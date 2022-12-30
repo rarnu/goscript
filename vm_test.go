@@ -8,10 +8,10 @@ import (
 
 func TestTaggedTemplateArgExport(t *testing.T) {
 	vm := New()
-	_ = vm.Set("f", func(v Value) {
+	vm.Set("f", func(v Value) {
 		v.Export()
 	})
-	_, _ = vm.RunString("f`test`")
+	vm.RunString("f`test`")
 }
 
 func TestVM1(t *testing.T) {
@@ -33,7 +33,6 @@ func TestVM1(t *testing.T) {
 			setElem,
 			pop,
 			loadDynamic("v"),
-			halt,
 		},
 	}
 
@@ -92,8 +91,10 @@ func TestNewArrayFromIterClosed(t *testing.T) {
 
 func BenchmarkVmNOP2(b *testing.B) {
 	prg := []func(*vm){
+		//loadVal(0).exec,
+		//loadVal(1).exec,
+		//add.exec,
 		jump(1).exec,
-		halt.exec,
 	}
 
 	r := &Runtime{}
@@ -105,11 +106,18 @@ func BenchmarkVmNOP2(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		vm.halt = false
 		vm.pc = 0
-		for !vm.halt {
+		for !vm.halted() {
 			prg[vm.pc](vm)
 		}
+		//vm.sp--
+		/*r := vm.pop()
+		if r.ToInteger() != 5 {
+			b.Fatalf("Unexpected result: %+v", r)
+		}
+		if vm.sp != 0 {
+			b.Fatalf("Unexpected sp: %d", vm.sp)
+		}*/
 	}
 }
 
@@ -121,7 +129,7 @@ func BenchmarkVmNOP(b *testing.B) {
 	vm.prg = &Program{
 		code: []instruction{
 			jump(1),
-			halt,
+			//jump(1),
 		},
 	}
 
@@ -135,14 +143,18 @@ func BenchmarkVmNOP(b *testing.B) {
 func BenchmarkVm1(b *testing.B) {
 	r := &Runtime{}
 	r.init()
+
 	vm := r.vm
+
+	//ins1 := loadVal1(0)
+	//ins2 := loadVal1(1)
+
 	vm.prg = &Program{
 		values: []Value{valueInt(2), valueInt(3)},
 		code: []instruction{
 			loadVal(0),
 			loadVal(1),
 			add,
-			halt,
 		},
 	}
 
@@ -211,9 +223,10 @@ func BenchmarkEmptyLoop(b *testing.B) {
 	b.StopTimer()
 	vm := New()
 	prg := MustCompile("test.js", SCRIPT, false)
+	// prg.dumpCode(log.Printf)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
 	}
 }
 
@@ -244,11 +257,11 @@ func BenchmarkFuncCall(b *testing.B) {
 	vm := New()
 	prg := MustCompile("test.js", SCRIPT, false)
 
-	_, _ = vm.RunProgram(prg)
+	vm.RunProgram(prg)
 	if f, ok := AssertFunction(vm.Get("f")); ok {
 		b.StartTimer()
 		for i := 0; i < b.N; i++ {
-			_, _ = f(nil, nil, intToValue(1), intToValue(2), intToValue(3), intToValue(4), intToValue(5), intToValue(6))
+			f(nil, nil, intToValue(1), intToValue(2), intToValue(3), intToValue(4), intToValue(5), intToValue(6))
 		}
 	} else {
 		b.Fatal("f is not a function")

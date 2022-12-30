@@ -2,11 +2,12 @@ package goscript
 
 import (
 	"fmt"
+	"github.com/rarnu/goscript/token"
+	"sort"
+
 	"github.com/rarnu/goscript/ast"
 	"github.com/rarnu/goscript/file"
-	"github.com/rarnu/goscript/token"
 	"github.com/rarnu/goscript/unistring"
-	"sort"
 )
 
 type blockType int
@@ -28,7 +29,8 @@ const (
 	maskVar       = 1 << 30
 	maskDeletable = 1 << 29
 	maskStrict    = maskDeletable
-	maskTyp       = maskConst | maskVar | maskDeletable
+
+	maskTyp = maskConst | maskVar | maskDeletable
 )
 
 type varType byte
@@ -40,7 +42,7 @@ const (
 	varTypeConst
 )
 
-const thisBindingName = " this"
+const thisBindingName = " this" // must not be a valid identifier
 
 type CompilerError struct {
 	Message string
@@ -62,21 +64,26 @@ type srcMapItem struct {
 }
 
 type Program struct {
-	code     []instruction
-	values   []Value
+	code   []instruction
+	values []Value
+
 	funcName unistring.String
 	src      *file.File
 	srcMap   []srcMapItem
 }
 
 type compiler struct {
-	p              *Program
-	scope          *scope
-	block          *block
-	classScope     *classScope
-	enumGetExpr    compiledEnumGetExpr
-	evalVM         *vm // 用于对表达式进行运算
-	ctxVM          *vm // eval(） 所编译的代码的上下文
+	p     *Program
+	scope *scope
+	block *block
+
+	classScope *classScope
+
+	enumGetExpr compiledEnumGetExpr
+
+	evalVM *vm // VM used to evaluate constant expressions
+	ctxVM  *vm // VM in which an eval() code is compiled
+
 	codeScratchpad []instruction
 }
 
@@ -143,6 +150,7 @@ func (b *binding) emitGetP() {
 	if b.isVar && !b.isArg {
 		// no-op
 	} else {
+		// make sure TDZ is checked
 		b.markAccessPoint()
 		b.scope.c.emit(loadStackLex(0), pop)
 	}
@@ -268,23 +276,35 @@ func (b *binding) useCount() (count int) {
 }
 
 type scope struct {
-	c           *compiler
-	prg         *Program
-	outer       *scope
-	nested      []*scope
-	boundNames  map[unistring.String]*binding
-	bindings    []*binding
-	base        int
-	numArgs     int
-	funcType    funcType // 函数类型。如果不是 funcNone，这就是一个函数或一个顶层词库环境
-	strict      bool     // 是否严格模式
-	eval        bool     // 是否在顶层范围
-	dynLookup   bool     // 至少有一个内部作用域有直接的 eval()，可以动态地通过名字查找名字
-	needStash   bool     // 至少有一个 binding 已经标记为在仓库内
-	variable    bool     // 是否环境变量，即动态创建 var 绑定的目标
-	dynamic     bool     // 一个至少有一个直接 eval() 的函数范围，并且是非严格的，所以变量可以被动态地添加
-	argsInStash bool     // 参数已经被标记为在仓库内（仅函数）
-	argsNeeded  bool     // 需要参数对象（仅函数）
+	c          *compiler
+	prg        *Program
+	outer      *scope
+	nested     []*scope
+	boundNames map[unistring.String]*binding
+	bindings   []*binding
+	base       int
+	numArgs    int
+
+	// function type. If not funcNone, this is a function or a top-level lexical environment
+	funcType funcType
+
+	// in strict mode
+	strict bool
+	// eval top-level scope
+	eval bool
+	// at least one inner scope has direct eval() which can lookup names dynamically (by name)
+	dynLookup bool
+	// at least one binding has been marked for placement in stash
+	needStash bool
+
+	// is a variable environment, i.e. the target for dynamically created var bindings
+	variable bool
+	// a function scope that has at least one direct eval() and non-strict, so the variables can be added dynamically
+	dynamic bool
+	// arguments have been marked for placement in stash (functions only)
+	argsInStash bool
+	// need 'arguments' object (functions only)
+	argsNeeded bool
 }
 
 type block struct {
@@ -294,7 +314,7 @@ type block struct {
 	breaks     []int
 	conts      []int
 	outer      *block
-	breaking   *block // 如果 'finally' 代码块是空的或者仅有 break 语句，设置此处
+	breaking   *block // set when the 'finally' block is an empty break statement sequence
 	needResult bool
 }
 
@@ -327,7 +347,7 @@ func (c *compiler) leaveBlock() {
 
 func (e *CompilerSyntaxError) Error() string {
 	if e.File != nil {
-		return fmt.Sprintf("SyntaxError: %s at %v", e.Message, e.File.Position(e.Offset))
+		return fmt.Sprintf("SyntaxError: %s at %s", e.Message, e.File.Position(e.Offset))
 	}
 	return fmt.Sprintf("SyntaxError: %s", e.Message)
 }
@@ -382,11 +402,11 @@ func (p *Program) defineLiteralValue(val Value) uint32 {
 	return idx
 }
 
-func (p *Program) dumpCode(logger func(format string, args ...any)) {
+func (p *Program) dumpCode(logger func(format string, args ...interface{})) {
 	p._dumpCode("", logger)
 }
 
-func (p *Program) _dumpCode(indent string, logger func(format string, args ...any)) {
+func (p *Program) _dumpCode(indent string, logger func(format string, args ...interface{})) {
 	logger("values: %+v", p.values)
 	dumpInitFields := func(initFields *Program) {
 		i := indent + ">"
@@ -400,9 +420,15 @@ func (p *Program) _dumpCode(indent string, logger func(format string, args ...an
 		switch f := ins.(type) {
 		case *newFunc:
 			prg = f.prg
+		case *newAsyncFunc:
+			prg = f.prg
 		case *newArrowFunc:
 			prg = f.prg
+		case *newAsyncArrowFunc:
+			prg = f.prg
 		case *newMethod:
+			prg = f.prg
+		case *newAsyncMethod:
 			prg = f.prg
 		case *newDerivedClass:
 			if f.initFields != nil {
@@ -530,7 +556,7 @@ func (s *scope) bindNameLexical(name unistring.String, unique bool, offset int) 
 
 func (s *scope) createThisBinding() *binding {
 	thisBinding, _ := s.bindNameLexical(thisBindingName, false, 0)
-	thisBinding.isVar = true
+	thisBinding.isVar = true // don't check on load
 	return thisBinding
 }
 
@@ -706,12 +732,14 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 							case resolveThisStack:
 								// no-op
 							case _ret:
-								// no-op, 已在正确位置
+								// no-op, already in the right place
 							default:
 								s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for 'this'")
 							}
 						}
-					}
+					} /*else {
+						no-op
+					}*/
 				} else if argsInStash {
 					for _, pc := range *aps {
 						ap := &code[base+pc]
@@ -960,8 +988,6 @@ func (c *compiler) compile(in *ast.Program, strict, inGlobal bool, evalVm *vm) {
 		c.popScope()
 	}
 
-	c.p.code = append(c.p.code, halt)
-
 	scope.finaliseVarAlloc(0)
 }
 
@@ -1002,8 +1028,26 @@ func (c *compiler) createFunctionBindings(funcs []*ast.FunctionDeclaration) {
 	s := c.scope
 	if s.outer != nil {
 		unique := !s.isFunction() && !s.variable && s.strict
-		for _, decl := range funcs {
-			s.bindNameLexical(decl.Function.Name.Name, unique, int(decl.Function.Name.Idx1())-1)
+		if !unique {
+			hasNonStandard := false
+			for _, decl := range funcs {
+				if !decl.Function.Async {
+					s.bindNameLexical(decl.Function.Name.Name, false, int(decl.Function.Name.Idx1())-1)
+				} else {
+					hasNonStandard = true
+				}
+			}
+			if hasNonStandard {
+				for _, decl := range funcs {
+					if decl.Function.Async {
+						s.bindNameLexical(decl.Function.Name.Name, true, int(decl.Function.Name.Idx1())-1)
+					}
+				}
+			}
+		} else {
+			for _, decl := range funcs {
+				s.bindNameLexical(decl.Function.Name.Name, true, int(decl.Function.Name.Idx1())-1)
+			}
 		}
 	} else {
 		for _, decl := range funcs {
@@ -1200,6 +1244,9 @@ func (c *compiler) compileFunction(v *ast.FunctionDeclaration) {
 }
 
 func (c *compiler) compileStandaloneFunctionDecl(v *ast.FunctionDeclaration) {
+	if v.Function.Async {
+		c.throwSyntaxError(int(v.Idx0())-1, "Async functions can only be declared at top level or inside a block.")
+	}
 	if c.scope.strict {
 		c.throwSyntaxError(int(v.Idx0())-1, "In strict mode code, functions can only be declared at top level or inside a block.")
 	}
@@ -1210,7 +1257,7 @@ func (c *compiler) emit(instructions ...instruction) {
 	c.p.code = append(c.p.code, instructions...)
 }
 
-func (c *compiler) throwSyntaxError(offset int, format string, args ...any) {
+func (c *compiler) throwSyntaxError(offset int, format string, args ...interface{}) {
 	panic(&CompilerSyntaxError{
 		CompilerError: CompilerError{
 			File:    c.p.src,
@@ -1258,9 +1305,12 @@ func (c *compiler) checkIdentifierLName(name unistring.String, offset int) {
 	}
 }
 
-// 进入 'dummy' 编译模式，该模式下编译产生的所有代码都将在调用 leaveFunc 后被丢弃，不会有副作用
-// 它的意义在于编译那些条件恒定为 false 的语句，例如 if false 或者 while (false)
-// 这样的代码不应该包含在最终的编译结果中，因为它从来没被调用过，但是在编译过程中，它必须存在
+// Enter a 'dummy' compilation mode. Any code produced after this method is called will be discarded after
+// leaveFunc is called with no additional side effects. This is useful for compiling code inside a
+// constant falsy condition 'if' branch or a loop (i.e 'if (false) { ... } or while (false) { ... }).
+// Such code should not be included in the final compilation result as it's never called, but it must
+// still produce compilation errors if there are any.
+// TODO: make sure variable lookups do not de-optimise parent scopes
 func (c *compiler) enterDummyMode() (leaveFunc func()) {
 	savedBlock, savedProgram := c.block, c.p
 	if savedBlock != nil {
@@ -1285,7 +1335,7 @@ func (c *compiler) compileStatementDummy(statement ast.Statement) {
 	leave()
 }
 
-func (c *compiler) assert(cond bool, offset int, msg string, args ...any) {
+func (c *compiler) assert(cond bool, offset int, msg string, args ...interface{}) {
 	if !cond {
 		c.throwSyntaxError(offset, "Compiler bug: "+msg, args...)
 	}
@@ -1319,10 +1369,12 @@ type privateEnvRegistry struct {
 }
 
 type classScope struct {
-	c                      *compiler
-	privateNames           map[unistring.String]*privateName
+	c            *compiler
+	privateNames map[unistring.String]*privateName
+
 	instanceEnv, staticEnv privateEnvRegistry
-	outer                  *classScope
+
+	outer *classScope
 }
 
 func (r *privateEnvRegistry) createPrivateMethodId(name unistring.String) int {

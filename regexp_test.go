@@ -606,6 +606,7 @@ func TestRegexpOverrideSpecies(t *testing.T) {
 }
 
 func TestRegexpSymbolMatchAllCallsIsRegexp(t *testing.T) {
+	// This is tc39's test/built-ins/RegExp/prototype/Symbol.matchAll/isregexp-this-throws.js
 	const SCRIPT = `
 	var a = new Object();
 	Object.defineProperty(a, Symbol.match, {
@@ -626,6 +627,7 @@ func TestRegexpSymbolMatchAllCallsIsRegexp(t *testing.T) {
 }
 
 func TestRegexpMatchAllConstructor(t *testing.T) {
+	// This is tc39's test/built-ins/RegExp/prototype/Symbol.matchAll/species-constuctor.js
 	const SCRIPT = `
 	var callCount = 0;
 	var callArgs;
@@ -689,12 +691,14 @@ func TestRegexpLookbehindAssertion(t *testing.T) {
 
 func TestRegexpInvalidUTF8(t *testing.T) {
 	vm := New()
+	// Note that normally vm.ToValue() would replace invalid UTF-8 sequences with RuneError
 	_, err := vm.New(vm.Get("RegExp"), asciiString([]byte{0xAD}))
 	if err == nil {
 		t.Fatal("Expected error")
 	}
 }
 
+// this should not cause data races when run with -race
 func TestRegexpConcurrentLiterals(t *testing.T) {
 	prg := MustCompile("test.js", `var r = /(?<!-)\d+/; r.test("");`, false)
 	go func() {
@@ -720,7 +724,7 @@ func BenchmarkRegexpSplitWithBackRef(b *testing.B) {
 	vm := New()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
 	}
 }
 
@@ -746,7 +750,7 @@ func BenchmarkRegexpMatch(b *testing.B) {
 	vm := New()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
 	}
 }
 
@@ -804,7 +808,7 @@ func BenchmarkRegexpMatchCache(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_, _ = fn(_undefined)
+			fn(_undefined)
 		}
 	} else {
 		b.Fatal("not a function")
@@ -865,7 +869,7 @@ func BenchmarkRegexpMatchAll(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_, _ = fn(_undefined)
+			fn(_undefined)
 		}
 	} else {
 		b.Fatal("not a function")

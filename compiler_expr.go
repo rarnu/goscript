@@ -24,8 +24,9 @@ type compiledExprOrRef interface {
 
 type compiledCallExpr struct {
 	baseCompiledExpr
-	args       []compiledExpr
-	callee     compiledExpr
+	args   []compiledExpr
+	callee compiledExpr
+
 	isVariadic bool
 }
 
@@ -112,6 +113,11 @@ type compiledIdentifierExpr struct {
 	name unistring.String
 }
 
+type compiledAwaitExpression struct {
+	baseCompiledExpr
+	arg compiledExpr
+}
+
 type funcType uint8
 
 const (
@@ -136,6 +142,7 @@ type compiledFunctionLiteral struct {
 	homeObjOffset   uint32
 	typ             funcType
 	isExpr          bool
+	isAsync         bool
 }
 
 type compiledBracketExpr struct {
@@ -225,6 +232,7 @@ func (e *defaultDeleteExpr) emitGetter(putOnStack bool) {
 }
 
 func (c *compiler) compileExpression(v ast.Expression) compiledExpr {
+	// log.Printf("compileExpression: %T", v)
 	switch v := v.(type) {
 	case nil:
 		return nil
@@ -300,6 +308,12 @@ func (c *compiler) compileExpression(v ast.Expression) compiledExpr {
 			expr: c.compileExpression(v.Expression),
 		}
 		r.init(c, v.Idx0())
+		return r
+	case *ast.AwaitExpression:
+		r := &compiledAwaitExpression{
+			arg: c.compileExpression(v.Argument),
+		}
+		r.init(c, v.Await)
 		return r
 	default:
 		c.assert(false, int(v.Idx0())-1, "Unknown expression type: %T", v)
@@ -1138,6 +1152,10 @@ func (e *deletePropExpr) emitGetter(putOnStack bool) {
 }
 
 func (e *deleteVarExpr) emitGetter(putOnStack bool) {
+	/*if e.c.scope.strict {
+		e.c.throwSyntaxError(e.offset, "Delete of an unqualified identifier in strict mode")
+		return
+	}*/
 	e.c.emit(deleteVar(e.name))
 	if !putOnStack {
 		e.c.emit(pop)
@@ -1145,6 +1163,11 @@ func (e *deleteVarExpr) emitGetter(putOnStack bool) {
 }
 
 func (e *deleteGlobalExpr) emitGetter(putOnStack bool) {
+	/*if e.c.scope.strict {
+		e.c.throwSyntaxError(e.offset, "Delete of an unqualified identifier in strict mode")
+		return
+	}*/
+
 	e.c.emit(deleteGlobal(e.name))
 	if !putOnStack {
 		e.c.emit(pop)
@@ -1333,7 +1356,7 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 	e.c.assert(e.typ != funcNone, e.offset, "compiledFunctionLiteral.typ is not set")
 
 	savedPrg := e.c.p
-	preambleLen := 8
+	preambleLen := 8 // enter, boxThis, loadStack(0), initThis, createArgs, set, loadCallee, init
 	e.c.p = &Program{
 		src:  e.c.p.src,
 		code: e.c.newCode(preambleLen, 16),
@@ -1369,9 +1392,10 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 	firstDupIdx := -1
 
 	if e.parameterList.Rest != nil {
-		hasPatterns = true
+		hasPatterns = true // strictly speaking not, but we need to activate all the checks
 	}
 
+	// First, make sure that the first bindings correspond to the formal parameters
 	for _, item := range e.parameterList.List {
 		switch tgt := item.Target.(type) {
 		case *ast.Identifier:
@@ -1413,11 +1437,12 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 		thisBinding = s.createThisBinding()
 	}
 
+	// create pattern bindings
 	if hasPatterns {
 		for _, item := range e.parameterList.List {
 			switch tgt := item.Target.(type) {
 			case *ast.Identifier:
-				// no-op
+				// we already created those in the previous loop, skipping
 			default:
 				e.c.compileParameterPatternBinding(tgt)
 			}
@@ -1519,6 +1544,8 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 			}
 		}
 	} else {
+		// To avoid triggering variable conflict when binding from non-strict direct eval().
+		// Parameters are supposed to be in a parent scope, hence no conflict.
 		for _, b := range s.bindings[:paramsCount] {
 			b.isVar = true
 		}
@@ -1616,7 +1643,8 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 	if thisBinding != nil && thisBinding.inStash && (!s.argsInStash || stackSize > 0) {
 		delta++
 		code[preambleLen-delta] = loadStack(0)
-	}
+	} // otherwise, 'this' will be at stack[sp-1], no need to load
+
 	if !s.strict && thisBinding != nil {
 		delta++
 		code[preambleLen-delta] = boxThis
@@ -1690,6 +1718,7 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 
 	strict = s.strict
 	prg = e.c.p
+	// e.c.p.dumpCode()
 	if enterFunc2Mark != -1 {
 		e.c.popScope()
 	}
@@ -1703,11 +1732,23 @@ func (e *compiledFunctionLiteral) emitGetter(putOnStack bool) {
 	p, name, length, strict := e.compile()
 	switch e.typ {
 	case funcArrow:
-		e.c.emit(&newArrowFunc{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}})
+		if e.isAsync {
+			e.c.emit(&newAsyncArrowFunc{newArrowFunc: newArrowFunc{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}}})
+		} else {
+			e.c.emit(&newArrowFunc{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}})
+		}
 	case funcMethod, funcClsInit:
-		e.c.emit(&newMethod{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}, homeObjOffset: e.homeObjOffset})
+		if e.isAsync {
+			e.c.emit(&newAsyncMethod{newMethod: newMethod{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}, homeObjOffset: e.homeObjOffset}})
+		} else {
+			e.c.emit(&newMethod{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}, homeObjOffset: e.homeObjOffset})
+		}
 	case funcRegular:
-		e.c.emit(&newFunc{prg: p, length: length, name: name, source: e.source, strict: strict})
+		if e.isAsync {
+			e.c.emit(&newAsyncFunc{newFunc: newFunc{prg: p, length: length, name: name, source: e.source, strict: strict}})
+		} else {
+			e.c.emit(&newFunc{prg: p, length: length, name: name, source: e.source, strict: strict})
+		}
 	default:
 		e.c.throwSyntaxError(e.offset, "Unsupported func type: %v", e.typ)
 	}
@@ -1730,6 +1771,7 @@ func (c *compiler) compileFunctionLiteral(v *ast.FunctionLiteral, isExpr bool) *
 		isExpr:          isExpr,
 		typ:             funcRegular,
 		strict:          strictBody,
+		isAsync:         v.Async,
 	}
 	r.init(c, v.Idx0())
 	return r
@@ -1886,6 +1928,13 @@ func (e *compiledClassLiteral) emitGetter(putOnStack bool) {
 	instanceFields := make([]clsElement, 0, instanceFieldsCount)
 	staticElements := make([]clsElement, 0, staticsCount)
 
+	// stack at this point:
+	//
+	// staticFieldInit (if staticsCount > 0 || hasStaticPrivateMethods)
+	// prototype
+	// class function
+	// <- sp
+
 	for idx, elt := range e.body {
 		if idx == ctorMethodIdx {
 			continue
@@ -1901,6 +1950,7 @@ func (e *compiledClassLiteral) emitGetter(putOnStack bool) {
 					DeclarationList: elt.DeclarationList,
 				}, true)
 				f.typ = funcClsInit
+				//f.lhsName = "<static_initializer>"
 				f.homeObjOffset = 1
 				staticElements = append(staticElements, clsElement{
 					body: f,
@@ -1963,8 +2013,23 @@ func (e *compiledClassLiteral) emitGetter(putOnStack bool) {
 				var offset int
 				if elt.Static {
 					if curIsPrototype {
+						/*
+							staticInit
+							proto
+							cls
+							proto
+							method
+							<- sp
+						*/
 						offset = 5
 					} else {
+						/*
+							staticInit
+							proto
+							cls
+							method
+							<- sp
+						*/
 						offset = 4
 					}
 				} else {
@@ -2039,6 +2104,10 @@ func (e *compiledClassLiteral) emitGetter(putOnStack bool) {
 
 	if (clsBinding != nil && clsBinding.useCount() > 0) || s.dynLookup {
 		if clsBinding != nil {
+			// Because this block may be in the middle of an expression, it's initial stack position
+			// cannot be known, and therefore it may not have any stack variables.
+			// Note, because clsBinding would be accessed through a function, it should already be in stash,
+			// this is just to make sure.
 			clsBinding.moveToStash()
 			clsBinding.emitInit()
 		}
@@ -2057,11 +2126,13 @@ func (e *compiledClassLiteral) emitGetter(putOnStack bool) {
 		staticInit.numPrivateFields = uint32(len(env.fields))
 		staticInit.numPrivateMethods = uint32(len(env.methods))
 		if s.dynLookup {
+			// These cannot be set on staticInit, because it is executed before ClassHeritage, and therefore
+			// the VM's PrivateEnvironment is still not set.
 			ise.privateFields = env.fields
 			ise.privateMethods = env.methods
 		}
 	} else {
-		e.c.emit(endVariadic)
+		e.c.emit(endVariadic) // re-using as semantics match
 	}
 
 	if !putOnStack {
@@ -2107,7 +2178,7 @@ func (e *compiledClassLiteral) compileFieldsAndStaticBlocks(elements []clsElemen
 	valIdx := 0
 	for _, elt := range elements {
 		if elt.body != nil {
-			e.c.emit(dup)
+			e.c.emit(dup) // this
 			elt.body.emitGetter(true)
 			elt.body.addSrcMap()
 			e.c.emit(call(0), pop)
@@ -2136,7 +2207,7 @@ func (e *compiledClassLiteral) compileFieldsAndStaticBlocks(elements []clsElemen
 			}
 		}
 	}
-	e.c.emit(halt)
+	//e.c.emit(halt)
 	if s.isDynamic() || thisBinding.useCount() > 0 {
 		if s.isDynamic() || thisBinding.inStash {
 			thisBinding.emitInitAt(1)
@@ -2215,6 +2286,7 @@ func (c *compiler) compileArrowFunctionLiteral(v *ast.ArrowFunctionLiteral) *com
 		isExpr:          true,
 		typ:             funcArrow,
 		strict:          strictBody,
+		isAsync:         v.Async,
 	}
 	r.init(c, v.Idx0())
 	return r
@@ -2386,7 +2458,6 @@ func (c *compiler) evalConst(expr compiledExpr) (Value, *Exception) {
 	}
 	savedPc := len(c.p.code)
 	expr.emitGetter(true)
-	c.emit(halt)
 	c.evalVM.pc = savedPc
 	ex := c.evalVM.runTry()
 	if createdPrg {
@@ -3172,6 +3243,8 @@ func (c *compiler) compileBooleanLiteral(v *ast.BooleanLiteral) compiledExpr {
 }
 
 func (c *compiler) compileAssignExpression(v *ast.AssignExpression) compiledExpr {
+	// log.Printf("compileAssignExpression(): %+v", v)
+
 	r := &compiledAssignExpr{
 		left:     c.compileExpression(v.Left),
 		right:    c.compileExpression(v.Right),
@@ -3468,5 +3541,13 @@ func (e *compiledOptional) emitGetter(putOnStack bool) {
 	if putOnStack {
 		e.c.block.breaks = append(e.c.block.breaks, len(e.c.p.code))
 		e.c.emit(nil)
+	}
+}
+
+func (e *compiledAwaitExpression) emitGetter(putOnStack bool) {
+	e.arg.emitGetter(true)
+	e.c.emit(await{})
+	if !putOnStack {
+		e.c.emit(pop)
 	}
 }

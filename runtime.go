@@ -4,12 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	jast "github.com/rarnu/goscript/ast"
-	"github.com/rarnu/goscript/file"
-	"github.com/rarnu/goscript/parser"
-	"github.com/rarnu/goscript/unistring"
 	"go/ast"
-	"golang.org/x/text/collate"
 	"hash/maphash"
 	"math"
 	"math/bits"
@@ -18,11 +13,19 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+
+	"golang.org/x/text/collate"
+
+	js_ast "github.com/rarnu/goscript/ast"
+	"github.com/rarnu/goscript/file"
+	"github.com/rarnu/goscript/parser"
+	"github.com/rarnu/goscript/unistring"
 )
 
 const (
-	sqrt1_2          float64 = math.Sqrt2 / 2
-	deoptimiseRegexp         = false
+	sqrt1_2 float64 = math.Sqrt2 / 2
+
+	deoptimiseRegexp = false
 )
 
 var (
@@ -45,25 +48,19 @@ type global struct {
 	stash    stash
 	varNames map[unistring.String]struct{}
 
-	Object     *Object
-	Array      *Object
-	Function   *Object
-	String     *Object
-	Number     *Object
-	Boolean    *Object
-	RegExp     *Object
-	Date       *Object
-	Mysql      *Object
-	Oracle     *Object
-	Mssql      *Object
-	Dameng     *Object
-	SQLite     *Object
-	Redis      *Object
-	Etcd       *Object
-	Kubernetes *Object
-	Symbol     *Object
-	Proxy      *Object
-	Promise    *Object
+	Object   *Object
+	Array    *Object
+	Function *Object
+	String   *Object
+	Number   *Object
+	Boolean  *Object
+	RegExp   *Object
+	Date     *Object
+	Symbol   *Object
+	Proxy    *Object
+	Promise  *Object
+
+	AsyncFunction *Object
 
 	ArrayBuffer       *Object
 	DataView          *Object
@@ -94,23 +91,15 @@ type global struct {
 
 	GoError *Object
 
-	ObjectPrototype     *Object
-	ArrayPrototype      *Object
-	NumberPrototype     *Object
-	StringPrototype     *Object
-	BooleanPrototype    *Object
-	FunctionPrototype   *Object
-	RegExpPrototype     *Object
-	DatePrototype       *Object
-	SymbolPrototype     *Object
-	MysqlPrototype      *Object
-	OraclePrototype     *Object
-	MssqlPrototype      *Object
-	DamengPrototype     *Object
-	SQLitePrototype     *Object
-	RedisPrototype      *Object
-	EtcdPrototype       *Object
-	KubernetesPrototype *Object
+	ObjectPrototype   *Object
+	ArrayPrototype    *Object
+	NumberPrototype   *Object
+	StringPrototype   *Object
+	BooleanPrototype  *Object
+	FunctionPrototype *Object
+	RegExpPrototype   *Object
+	DatePrototype     *Object
+	SymbolPrototype   *Object
 
 	ArrayBufferPrototype *Object
 	DataViewPrototype    *Object
@@ -120,6 +109,8 @@ type global struct {
 	MapPrototype         *Object
 	SetPrototype         *Object
 	PromisePrototype     *Object
+
+	AsyncFunctionPrototype *Object
 
 	IteratorPrototype             *Object
 	ArrayIteratorPrototype        *Object
@@ -152,6 +143,27 @@ type global struct {
 	setAdder      *Object
 	arrayValues   *Object
 	arrayToString *Object
+
+	Etcd                   *Object
+	EtcdPrototype          *Object
+	Dameng                 *Object
+	DamengPrototype        *Object
+	InfluxDB               *Object
+	InfluxDBPrototype      *Object
+	InfluxDBWrite          *Object
+	InfluxDBWritePrototype *Object
+	InfluxDBQuery          *Object
+	InfluxDBQueryPrototype *Object
+	Mssql                  *Object
+	MssqlPrototype         *Object
+	Mysql                  *Object
+	MysqlPrototype         *Object
+	Oracle                 *Object
+	OraclePrototype        *Object
+	Redis                  *Object
+	RedisPrototype         *Object
+	SQLite                 *Object
+	SQLitePrototype        *Object
 }
 
 type Flag int
@@ -178,21 +190,29 @@ type RandSource func() float64
 type Now func() time.Time
 
 type Runtime struct {
-	global                  global
-	globalObject            *Object
-	stringSingleton         *stringObject
-	rand                    RandSource
-	now                     Now
-	_collator               *collate.Collator
-	parserOptions           []parser.Option
-	symbolRegistry          map[unistring.String]*Symbol
-	typeInfoCache           map[reflect.Type]*reflectTypeInfo
-	fieldNameMapper         FieldNameMapper
-	vm                      *vm
-	hash                    *maphash.Hash
-	idSeq                   uint64
-	jobQueue                []func()
+	global          global
+	globalObject    *Object
+	stringSingleton *stringObject
+	rand            RandSource
+	now             Now
+	_collator       *collate.Collator
+	parserOptions   []parser.Option
+
+	symbolRegistry map[unistring.String]*Symbol
+
+	fieldsInfoCache  map[reflect.Type]*reflectFieldsInfo
+	methodsInfoCache map[reflect.Type]*reflectMethodsInfo
+
+	fieldNameMapper FieldNameMapper
+
+	vm    *vm
+	hash  *maphash.Hash
+	idSeq uint64
+
+	jobQueue []func()
+
 	promiseRejectionTracker PromiseRejectionTracker
+	asyncContextTracker     AsyncContextTracker
 }
 
 type StackFrame struct {
@@ -308,7 +328,7 @@ func (ue *uncatchableException) Unwrap() error {
 
 type InterruptedError struct {
 	Exception
-	iface any
+	iface interface{}
 }
 
 func (e *InterruptedError) Unwrap() error {
@@ -322,7 +342,7 @@ type StackOverflowError struct {
 	Exception
 }
 
-func (e *InterruptedError) Value() any {
+func (e *InterruptedError) Value() interface{} {
 	return e.iface
 }
 
@@ -397,6 +417,7 @@ func (r *Runtime) addToGlobal(name string, value Value) {
 
 func (r *Runtime) createIterProto(val *Object) objectImpl {
 	o := newBaseObjectObj(val, r.global.ObjectPrototype, classObject)
+
 	o._putSym(SymIterator, valueProp(r.newNativeFunc(r.returnThis, nil, "[Symbol.iterator]", nil, 0), true, false, true))
 	return o
 }
@@ -422,6 +443,7 @@ func (r *Runtime) init() {
 
 	r.initObject()
 	r.initFunction()
+	r.initAsyncFunction()
 	r.initArray()
 	r.initString()
 	r.initGlobalObject()
@@ -448,18 +470,19 @@ func (r *Runtime) init() {
 	r.initSet()
 	r.initPromise()
 
-	// 在 js 标准之外定义的额外函数库
+	r.initCrypto()
+	r.initFile()
 	r.initHttp()
+	r.initK8s()
+
+	r.initDameng()
+	r.initEtcd()
+	r.initInfluxDB()
+	r.initMssql()
 	r.initMySQL()
 	r.initOracle()
-	r.initMssql()
-	r.initDameng()
-	r.initSQLite()
 	r.initRedis()
-	r.initEtcd()
-	r.initFile()
-	r.initCrypto()
-	r.initK8s()
+	r.initSQLite()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)
 	r.global.throwerProperty = &valueProperty{
@@ -483,13 +506,13 @@ func (r *Runtime) init() {
 	})
 }
 
-func (r *Runtime) typeErrorResult(throw bool, args ...any) {
+func (r *Runtime) typeErrorResult(throw bool, args ...interface{}) {
 	if throw {
 		panic(r.NewTypeError(args...))
 	}
 }
 
-func (r *Runtime) newError(typ *Object, format string, args ...any) Value {
+func (r *Runtime) newError(typ *Object, format string, args ...interface{}) Value {
 	var msg string
 	if len(args) > 0 {
 		msg = fmt.Sprintf(format, args...)
@@ -500,7 +523,11 @@ func (r *Runtime) newError(typ *Object, format string, args ...any) Value {
 }
 
 func (r *Runtime) throwReferenceError(name unistring.String) {
-	panic(r.newError(r.global.ReferenceError, "%s is not defined", name))
+	panic(r.newReferenceError(name))
+}
+
+func (r *Runtime) newReferenceError(name unistring.String) Value {
+	return r.newError(r.global.ReferenceError, "%s is not defined", name)
 }
 
 func (r *Runtime) newSyntaxError(msg string, offset int) Value {
@@ -547,11 +574,12 @@ func (r *Runtime) NewObject() (v *Object) {
 	return r.newBaseObject(r.global.ObjectPrototype, classObject).val
 }
 
+// CreateObject creates an object with given prototype. Equivalent of Object.create(proto).
 func (r *Runtime) CreateObject(proto *Object) *Object {
 	return r.newBaseObject(proto, classObject).val
 }
 
-func (r *Runtime) NewArray(items ...any) *Object {
+func (r *Runtime) NewArray(items ...interface{}) *Object {
 	values := make([]Value, len(items))
 	for i, item := range items {
 		values[i] = r.ToValue(item)
@@ -559,7 +587,7 @@ func (r *Runtime) NewArray(items ...any) *Object {
 	return r.newArrayValues(values)
 }
 
-func (r *Runtime) NewTypeError(args ...any) *Object {
+func (r *Runtime) NewTypeError(args ...interface{}) *Object {
 	msg := ""
 	if len(args) > 0 {
 		f, _ := args[0].(string)
@@ -570,20 +598,24 @@ func (r *Runtime) NewTypeError(args ...any) *Object {
 
 func (r *Runtime) NewGoError(err error) *Object {
 	e := r.newError(r.global.GoError, err.Error()).(*Object)
-	_ = e.Set("value", err)
+	e.Set("value", err)
 	return e
 }
 
 func (r *Runtime) newFunc(name unistring.String, length int, strict bool) (f *funcObject) {
-	v := &Object{runtime: r}
-
 	f = &funcObject{}
-	f.class = classFunction
-	f.val = v
-	f.extensible = true
-	f.strict = strict
-	v.self = f
-	f.prototype = r.global.FunctionPrototype
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.val.self = f
+	f.init(name, intToValue(int64(length)))
+	return
+}
+
+func (r *Runtime) newAsyncFunc(name unistring.String, length int, strict bool) (f *asyncFuncObject) {
+	f = &asyncFuncObject{}
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.class = classAsyncFunction
+	f.prototype = r.global.AsyncFunctionPrototype
+	f.val.self = f
 	f.init(name, intToValue(int64(length)))
 	return
 }
@@ -603,34 +635,51 @@ func (r *Runtime) newClassFunc(name unistring.String, length int, proto *Object,
 	return
 }
 
-func (r *Runtime) newMethod(name unistring.String, length int, strict bool) (f *methodFuncObject) {
+func (r *Runtime) initBaseJsFunction(f *baseJsFuncObject, strict bool) {
 	v := &Object{runtime: r}
 
-	f = &methodFuncObject{}
 	f.class = classFunction
 	f.val = v
 	f.extensible = true
 	f.strict = strict
-	v.self = f
 	f.prototype = r.global.FunctionPrototype
+}
+
+func (r *Runtime) newMethod(name unistring.String, length int, strict bool) (f *methodFuncObject) {
+	f = &methodFuncObject{}
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.val.self = f
 	f.init(name, intToValue(int64(length)))
 	return
 }
 
+func (r *Runtime) newAsyncMethod(name unistring.String, length int, strict bool) (f *asyncMethodFuncObject) {
+	f = &asyncMethodFuncObject{}
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.val.self = f
+	f.init(name, intToValue(int64(length)))
+	return
+}
+
+func (r *Runtime) initArrowFunc(f *arrowFuncObject, strict bool) {
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.newTarget = r.vm.newTarget
+}
+
 func (r *Runtime) newArrowFunc(name unistring.String, length int, strict bool) (f *arrowFuncObject) {
-	v := &Object{runtime: r}
-
 	f = &arrowFuncObject{}
-	f.class = classFunction
-	f.val = v
-	f.extensible = true
-	f.strict = strict
+	r.initArrowFunc(f, strict)
+	f.val.self = f
+	f.init(name, intToValue(int64(length)))
+	return
+}
 
-	vm := r.vm
-
-	f.newTarget = vm.newTarget
-	v.self = f
-	f.prototype = r.global.FunctionPrototype
+func (r *Runtime) newAsyncArrowFunc(name unistring.String, length int, strict bool) (f *asyncArrowFuncObject) {
+	f = &asyncArrowFuncObject{}
+	r.initArrowFunc(&f.arrowFuncObject, strict)
+	f.class = classAsyncFunction
+	f.prototype = r.global.AsyncFunctionPrototype
+	f.val.self = f
 	f.init(name, intToValue(int64(length)))
 	return
 }
@@ -761,6 +810,30 @@ func (r *Runtime) newNativeFunc(call func(FunctionCall) Value, construct func(ar
 	return v
 }
 
+func (r *Runtime) newWrappedFunc(value reflect.Value) *Object {
+
+	v := &Object{runtime: r}
+
+	f := &wrappedFuncObject{
+		nativeFuncObject: nativeFuncObject{
+			baseFuncObject: baseFuncObject{
+				baseObject: baseObject{
+					class:      classFunction,
+					val:        v,
+					extensible: true,
+					prototype:  r.global.FunctionPrototype,
+				},
+			},
+			f: r.wrapReflectFunc(value),
+		},
+		wrapped: value,
+	}
+	v.self = f
+	name := unistring.NewFromString(runtime.FuncForPC(value.Pointer()).Name())
+	f.init(name, intToValue(int64(value.Type().NumIn())))
+	return v
+}
+
 func (r *Runtime) newNativeFuncConstructObj(v *Object, construct func(args []Value, proto *Object) *Object, name unistring.String, proto *Object, length int) *nativeFuncObject {
 	f := &nativeFuncObject{
 		baseFuncObject: baseFuncObject{
@@ -863,34 +936,6 @@ func (r *Runtime) builtin_newBoolean(args []Value, proto *Object) *Object {
 	return r.newPrimitiveObject(v, proto, classBoolean)
 }
 
-func (r *Runtime) error_toString(call FunctionCall) Value {
-	var nameStr, msgStr valueString
-	obj := r.toObject(call.This)
-	name := obj.self.getStr("name", nil)
-	if name == nil || name == _undefined {
-		nameStr = asciiString("Error")
-	} else {
-		nameStr = name.toString()
-	}
-	msg := obj.self.getStr("message", nil)
-	if msg == nil || msg == _undefined {
-		msgStr = stringEmpty
-	} else {
-		msgStr = msg.toString()
-	}
-	if nameStr.length() == 0 {
-		return msgStr
-	}
-	if msgStr.length() == 0 {
-		return nameStr
-	}
-	var sb valueStringBuilder
-	sb.WriteString(nameStr)
-	sb.WriteString(asciiString(": "))
-	sb.WriteString(msgStr)
-	return sb.String()
-}
-
 func (r *Runtime) builtin_new(construct *Object, args []Value) *Object {
 	return r.toConstructor(construct)(args, nil)
 }
@@ -940,10 +985,12 @@ func (r *Runtime) eval(srcVal valueString, direct, strict bool) Value {
 	vm.push(funcObj)
 	vm.sb = vm.sp
 	vm.push(nil) // this
-	vm.run()
+	ex := vm.runTry()
 	retval := vm.result
 	vm.popCtx()
-	vm.halt = false
+	if ex != nil {
+		panic(ex)
+	}
 	vm.sp -= 2
 	return retval
 }
@@ -1222,7 +1269,7 @@ repeat:
 		v = num.ToNumber()
 		goto repeat
 	default:
-		// 必须的遗留行为 https://tc39.es/ecma262/#sec-arraysetlength
+		// Legacy behaviour as specified in https://tc39.es/ecma262/#sec-arraysetlength (see the note)
 		n2 := toUint32(v)
 		n1 := v.ToNumber()
 		if f, ok := n1.(valueFloat); ok {
@@ -1283,26 +1330,30 @@ func (r *Runtime) toBoolean(b bool) Value {
 	}
 }
 
-// New 创建一个 Javascript 运行时的实例，可以用来运行代码。多个实例可以被创建并同时使用，但是不能在不同的运行时之间传递 JS 值
+// New creates an instance of a Javascript runtime that can be used to run code. Multiple instances may be created and
+// used simultaneously, however it is not possible to pass JS values across runtimes.
 func New() *Runtime {
 	r := &Runtime{}
 	r.init()
 	return r
 }
 
-// Compile 将会创建一个 Javascript 代码的内部形式，之后可以使用 Runtime.RunProgram() 方法运行
-// 这个内部形式不会以任何方式链接到运行时，因此可以在多个运行时中运行
+// Compile creates an internal representation of the JavaScript code that can be later run using the Runtime.RunProgram()
+// method. This representation is not linked to a runtime in any way and can be run in multiple runtimes (possibly
+// at the same time).
 func Compile(name, src string, strict bool) (*Program, error) {
 	return compile(name, src, strict, true, nil)
 }
 
-// CompileAST 与 Compile 一致，但是它接受一个 Javascript AST 形式的代码
-func CompileAST(prg *jast.Program, strict bool) (*Program, error) {
+// CompileAST creates an internal representation of the JavaScript code that can be later run using the Runtime.RunProgram()
+// method. This representation is not linked to a runtime in any way and can be run in multiple runtimes (possibly
+// at the same time).
+func CompileAST(prg *js_ast.Program, strict bool) (*Program, error) {
 	return compileAST(prg, strict, true, nil)
 }
 
-// MustCompile 与 Compile 一样，但是如果代码不能被编译，就会出现 panic
-// 它简化了持有已编译的 Javascript 代码的全局变量的安全初始化
+// MustCompile is like Compile but panics if the code cannot be compiled.
+// It simplifies safe initialization of global variables holding compiled JavaScript code.
 func MustCompile(name, src string, strict bool) *Program {
 	prg, err := Compile(name, src, strict)
 	if err != nil {
@@ -1312,18 +1363,19 @@ func MustCompile(name, src string, strict bool) *Program {
 	return prg
 }
 
-// Parse 接收一个源字符串并产生一个解析的 AST。如果你想向解析器传递选项，请使用此函数
-// 例如：
+// Parse takes a source string and produces a parsed AST. Use this function if you want to pass options
+// to the parser, e.g.:
 //
 //	p, err := Parse("test.js", "var a = true", parser.WithDisableSourceMaps)
 //	if err != nil { /* ... */ }
 //	prg, err := CompileAST(p, true)
 //	// ...
 //
-// 否则就使用 Compile，它结合了这两个步骤
-func Parse(name, src string, options ...parser.Option) (prg *jast.Program, err error) {
+// Otherwise use Compile which combines both steps.
+func Parse(name, src string, options ...parser.Option) (prg *js_ast.Program, err error) {
 	prg, err1 := parser.ParseFile(nil, name, src, 0, options...)
 	if err1 != nil {
+		// FIXME offset
 		err = &CompilerSyntaxError{
 			CompilerError: CompilerError{
 				Message: err1.Error(),
@@ -1342,7 +1394,7 @@ func compile(name, src string, strict, inGlobal bool, evalVm *vm, parserOptions 
 	return compileAST(prg, strict, inGlobal, evalVm)
 }
 
-func compileAST(prg *jast.Program, strict, inGlobal bool, evalVm *vm) (p *Program, err error) {
+func compileAST(prg *js_ast.Program, strict, inGlobal bool, evalVm *vm) (p *Program, err error) {
 	c := newCompiler()
 
 	defer func() {
@@ -1373,18 +1425,18 @@ func (r *Runtime) compile(name, src string, strict, inGlobal bool, evalVm *vm) (
 		case *CompilerReferenceError:
 			err = &Exception{
 				val: r.newError(r.global.ReferenceError, x1.Message),
-			}
+			} // TODO proper message
 		}
 	}
 	return
 }
 
-// RunString 在全局环境中执行给定的字符串
+// RunString executes the given string in the global context.
 func (r *Runtime) RunString(str string) (Value, error) {
 	return r.RunScript("", str)
 }
 
-// RunScript 在全局环境中执行给定的字符串
+// RunScript executes the given string in the global context.
 func (r *Runtime) RunScript(name, src string) (Value, error) {
 	p, err := r.compile(name, src, false, true, nil)
 
@@ -1395,13 +1447,20 @@ func (r *Runtime) RunScript(name, src string) (Value, error) {
 	return r.RunProgram(p)
 }
 
-// RunProgram 在全局上下文中执行预先编译的代码
+// RunProgram executes a pre-compiled (see Compile()) code in the global context.
 func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
+	vm := r.vm
+	recursive := len(vm.callStack) > 0
 	defer func() {
+		if recursive {
+			vm.popCtx()
+		} else {
+			vm.callStack = vm.callStack[:len(vm.callStack)-1]
+		}
 		if x := recover(); x != nil {
 			if ex, ok := x.(*uncatchableException); ok {
 				err = ex.err
-				if len(r.vm.callStack) == 0 {
+				if len(vm.callStack) == 0 {
 					r.leaveAbrupt()
 				}
 			} else {
@@ -1409,13 +1468,12 @@ func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 			}
 		}
 	}()
-	vm := r.vm
-	recursive := false
-	if len(vm.callStack) > 0 {
-		recursive = true
+	if recursive {
 		vm.pushCtx()
 		vm.stash = &r.global.stash
 		vm.sb = vm.sp - 1
+	} else {
+		vm.callStack = append(vm.callStack, context{})
 	}
 	vm.prg = p
 	vm.pc = 0
@@ -1427,21 +1485,20 @@ func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 		err = ex
 	}
 	if recursive {
-		vm.popCtx()
-		vm.halt = false
 		vm.clearStack()
 	} else {
-		vm.stack = nil
 		vm.prg = nil
-		vm.funcName = ""
+		vm.sb = -1
 		r.leave()
 	}
 	return
 }
 
-// CaptureCallStack 将当前的调用堆栈帧附加到堆栈切片（可以是nil），直到指定的深度
-// 如果深度 <= 0 或超过可用的帧数，则返回整个栈
-// 这个方法对于并发使用并不安全，只能由运行中的脚本中的 Go 函数调用
+// CaptureCallStack appends the current call stack frames to the stack slice (which may be nil) up to the specified depth.
+// The most recent frame will be the first one.
+// If depth <= 0 or more than the number of available frames, returns the entire stack.
+// This method is not safe for concurrent use and should only be called by a Go function that is
+// called from a running script.
 func (r *Runtime) CaptureCallStack(depth int, stack []StackFrame) []StackFrame {
 	l := len(r.vm.callStack)
 	var offset int
@@ -1457,193 +1514,281 @@ func (r *Runtime) CaptureCallStack(depth int, stack []StackFrame) []StackFrame {
 	return r.vm.captureStack(stack, offset)
 }
 
-// Interrupt 中断一个正在运行的 Javascript。相应的Go调用将返回一个包含 v 的 *InterruptedError
-// 如果中断后的堆栈是空的，那么当前排队的 Promise 解析/拒绝作业将被清除而不被执行
-// 注意，它只在 Javascript 代码中工作，它不会中断原生 Go 函数（包括所有的内置函数）
-// 如果执行中断时，当前没有脚本正在运行，那么在下一次 Run*() 调用时就会立即中断，为了避免这种情况，请使用ClearInterrupt()
-func (r *Runtime) Interrupt(v any) {
+// Interrupt a running JavaScript. The corresponding Go call will return an *InterruptedError containing v.
+// If the interrupt propagates until the stack is empty the currently queued promise resolve/reject jobs will be cleared
+// without being executed. This is the same time they would be executed otherwise.
+// Note, it only works while in JavaScript code, it does not interrupt native Go functions (which includes all built-ins).
+// If the runtime is currently not running, it will be immediately interrupted on the next Run*() call.
+// To avoid that use ClearInterrupt()
+func (r *Runtime) Interrupt(v interface{}) {
 	r.vm.Interrupt(v)
 }
 
-// ClearInterrupt 重置中断标志。通常情况下，如果运行时有可能被 Interrupt() 所打断，则需要在运行时可以重新使用之前调用
+// ClearInterrupt resets the interrupt flag. Typically this needs to be called before the runtime
+// is made available for re-use if there is a chance it could have been interrupted with Interrupt().
+// Otherwise if Interrupt() was called when runtime was not running (e.g. if it had already finished)
+// so that Interrupt() didn't actually trigger, an attempt to use the runtime will immediately cause
+// an interruption. It is up to the user to ensure proper synchronisation so that ClearInterrupt() is
+// only called when the runtime has finished and there is no chance of a concurrent Interrupt() call.
 func (r *Runtime) ClearInterrupt() {
 	r.vm.ClearInterrupt()
 }
 
 /*
-ToValue 将 Go 值转换为最合适类型的 Javascript值。结构类型（如 struct、map 和 slice）被包装起来，这样所产生的变化就会反映在原始值上，可以用 Value.Export() 来检索
+ToValue converts a Go value into a JavaScript value of a most appropriate type. Structural types (such as structs, maps
+and slices) are wrapped so that changes are reflected on the original value which can be retrieved using Value.Export().
 
-警告! 这些包装好的 Go 值与原生 ECMAScript 值的行为方式不同。如果你打算在ECMAScript中修改它们，请记住以下注意事项：
+WARNING! These wrapped Go values do not behave in the same way as native ECMAScript values. If you plan to modify
+them in ECMAScript, bear in mind the following caveats:
 
- 1. 如果一个普通的 Javascript 对象被分配为包装的 Go struct、map 或数组中的一个元素，它将被 Export()，因此会被复制，这可能会导致JavaScript中出现意外的行为:
-    m := map[string]any{}
-    vm.Set("m", m)
-    vm.RunString(`
-    var obj = {test: false};
-    m.obj = obj; // obj 被 Export()，即复制到一个新的 map[string]any 并且这个 map 被设置到 m["obj"]
-    obj.test = true; // 注意，这里的 m.obj.test 依然是 false
-    `)
-    fmt.Println(m["obj"].(map[string]any)["test"]) // 打印出 false
+1. If a regular JavaScript Object is assigned as an element of a wrapped Go struct, map or array, it is
+Export()'ed and therefore copied. This may result in an unexpected behaviour in JavaScript:
 
- 2. 如果你在 ECMAScript 中修改嵌套的非指针式复合类型（struct、slice 和数组），要小心，尽可能避免在 ECMAScript 中修改它们，ECMAScript 和 Go 的一个根本区别在于
-    前者的所有对象都是引用，而在 Go 中你可以有一个字面的 struct 或数组。请看下面的例子:
+	m := map[string]interface{}{}
+	vm.Set("m", m)
+	vm.RunString(`
+	var obj = {test: false};
+	m.obj = obj; // obj gets Export()'ed, i.e. copied to a new map[string]interface{} and then this map is set as m["obj"]
+	obj.test = true; // note, m.obj.test is still false
+	`)
+	fmt.Println(m["obj"].(map[string]interface{})["test"]) // prints "false"
 
-    type S struct {
-    Field int
-    }
+2. Be careful with nested non-pointer compound types (structs, slices and arrays) if you modify them in
+ECMAScript. Better avoid it at all if possible. One of the fundamental differences between ECMAScript and Go is in
+the former all Objects are references whereas in Go you can have a literal struct or array. Consider the following
+example:
 
-    a := []S{{1}, {2}} // 节片的字面结构
-    vm.Set("a", &a)
-    vm.RunString(`
-    let tmp = {Field: 1};
-    a[0] = tmp;
-    a[1] = tmp;
-    tmp.Field = 2;
-    `)
+	type S struct {
+	    Field int
+	}
 
-    在ECMAScript中，我们希望a[0].Field和a[1].Field等于2，但是这是不可能的(或者至少在没有复杂的引用跟踪的情况下是不可行的)。
-    为了涵盖最常见的使用情况并避免过多的内存分配，"变化时复制" 的机制已被实现（对数组和struct）:
+	a := []S{{1}, {2}} // slice of literal structs
+	vm.Set("a", &a)
+	vm.RunString(`
+	    let tmp = {Field: 1};
+	    a[0] = tmp;
+	    a[1] = tmp;
+	    tmp.Field = 2;
+	`)
 
-    * 当一个嵌套的复合值被访问时，返回的 ES 值成为对字面值的引用。这保证了像 'a[0].Field = 1' 这样的事情能如期进行，对 'a[0].Field' 的简单访问不会导致导致对 a[0] 的复制
-    * 原始的容器（在上述例子中是 'a' ）会跟踪返回的引用值，如果 a[0] 被重新赋值（例如，通过直接赋值、删除或缩小数组），旧的 a[0] 被复制，先前的返回值成为该副本的一个引用
+In ECMAScript one would expect a[0].Field and a[1].Field to be equal to 2, but this is really not possible
+(or at least non-trivial without some complex reference tracking).
 
-    例如：
+To cover the most common use cases and to avoid excessive memory allocation, the following 'copy-on-change' mechanism
+is implemented (for both arrays and structs):
 
-    let tmp = a[0];                      // 没有复制，tmp 是对 a[0] 的引用
-    tmp.Field = 1;                       // 此时 a[0].Field === 1
-    a[0] = {Field: 2};                   // tmp现在是对旧值副本的引用（Field ===1）
-    a[0].Field === 2 && tmp.Field === 1; // true
+* When a nested compound value is accessed, the returned ES value becomes a reference to the literal value.
+This ensures that things like 'a[0].Field = 1' work as expected and simple access to 'a[0].Field' does not result
+in copying of a[0].
 
-    * 由原地排序（使用 Array.prototype.sort() ）引起的数组值交换不被视为重新分配，而是引用被调整为指向新的索引
-    * 对内部复合值的赋值总是进行复制（有时还进行类型转换）
+* The original container ('a' in our case) keeps track of the returned reference value and if a[0] is reassigned
+(e.g. by direct assignment, deletion or shrinking the array) the old a[0] is copied and the earlier returned value
+becomes a reference to the copy:
 
-    a[1] = tmp;    // a[1] 现在是 tmp 的复制
-    tmp.Field = 3; // 不影响 a[1].Field
+	let tmp = a[0];                      // no copy, tmp is a reference to a[0]
+	tmp.Field = 1;                       // a[0].Field === 1 after this
+	a[0] = {Field: 2};                   // tmp is now a reference to a copy of the old value (with Field === 1)
+	a[0].Field === 2 && tmp.Field === 1; // true
 
-3. 非可寻址 struct、slice 和数组被复制。这有时可能会导致混乱，因为分配给内部字段的赋值似乎并不奏效
+* Array value swaps caused by in-place sort (using Array.prototype.sort()) do not count as re-assignments, instead
+the references are adjusted to point to the new indices.
 
-		a1 := []any{S{1}, S{2}}
-		vm.Set("a1", &a1)
-		vm.RunString(`
-		   a1[0].Field === 1; // true
-		   a1[0].Field = 2;
-		   a1[0].Field === 2; // false, 因为它真正做的是复制 a1[0]，将其字段设置为2，并立即将其删除
-		`)
+* Assignment to an inner compound value always does a copy (and sometimes type conversion):
 
-	   另一种方法是让 a1[0].Field 成为一个不可写的属性，如果需要修改的话，就需要手动复制值，但是这可能是不切实际的
-	   注意，这同样适用于 slice。如果一个 slice 是通过值传递的（而不是作为一个指针），调整 slice 的大小并不反映在原来的值。此外，扩展 slice 可能会导致底层数组被重新分配和复制
-	   例如:
+	a[1] = tmp;    // a[1] is now a copy of tmp
+	tmp.Field = 3; // does not affect a[1].Field
 
-		a := []any{1}
-		vm.Set("a", a)
-		vm.RunString(`a.push(2); a[0] = 0;`)
-		fmt.Println(a[0]) // 打印 "1"
+3. Non-addressable structs, slices and arrays get copied. This sometimes may lead to a confusion as assigning to
+inner fields does not appear to work:
 
-	   关于个别类型的说明:
-	   #原始类型
-	      原始类型（数字、字符串、布尔）被转换为相应的 Javascript 原语
-	   # 字符串
-	      由于 ECMAScript（使用 UTF-16）和 Go（使用 UTF-8）从 JS 到 Go 的转换可能是有损失的。字符串值必须是一个有效的UTF-8。如果不是，无效的字符会被替换为utf8.RuneError
-	      但是后续的 Export() 的行为没有被指定（它可能返回原始值，或一个被替换的无效字符）
-	   # Nil
-	      Nil 被转换为 null
-	   # 函数
-	      func(FunctionCall) Value被视为一个本地 Javascript 函数。这将提高性能，因为没有自动转换参数和返回值的类型（这涉及到反射）。试图将该函数用作构造函数将导致 TypeError
+	a1 := []interface{}{S{1}, S{2}}
+	vm.Set("a1", &a1)
+	vm.RunString(`
+	   a1[0].Field === 1; // true
+	   a1[0].Field = 2;
+	   a1[0].Field === 2; // FALSE, because what it really did was copy a1[0] set its Field to 2 and immediately drop it
+	`)
 
-	      func(ConstructorCall) *Object 被视为一个本地构造函数，允许用 new 操作符一起使用
+An alternative would be making a1[0].Field a non-writable property which would probably be more in line with
+ECMAScript, however it would require to manually copy the value if it does need to be modified which may be
+impractical.
 
-			func MyObject(call ConstructorCall) *Object {
-				call.This.Set("method", method)
-		        //...
-		        // instance := &myCustomStruct{}
-		        // instanceValue := vm.ToValue(instance).(*Object)
-		        // instanceValue.SetPrototype(call.This.Prototype())
-		        // return instanceValue
-		        return nil
-		     }
-		     runtime.Set("MyObject", MyObject)
+Note, the same applies to slices. If a slice is passed by value (not as a pointer), resizing the slice does not reflect on the original
+value. Moreover, extending the slice may result in the underlying array being re-allocated and copied.
+For example:
 
-	      那么它可以在 JS 中使用，如下：
+	a := []interface{}{1}
+	vm.Set("a", a)
+	vm.RunString(`a.push(2); a[0] = 0;`)
+	fmt.Println(a[0]) // prints "1"
 
-	        var o = new MyObject(arg);
-		    var o1 = MyObject(arg); // 等价于上面的
-		    o instanceof MyObject && o1 instanceof MyObject; // true
+Notes on individual types:
 
-	      当一个本地构造函数被直接调用时（没有new操作符），其行为取决于这个值：如果它是一个对象，它会被传递，否则会创建一个新的对象，就像它是用 new 操作符调用的。在这两种情况下，call.NewTarget 将是 nil
+# Primitive types
 
-		  func(ConstructorCall, *Runtime) *Object 的处理方法同上，只是 *Runtime 也被作为参数传递
-	      任何其他的 Go 函数都会被包装起来，这样参数就会自动转换为所需的 Go 类型，而返回值被转换为 Javascript 值（使用此方法）。 如果无法转换，则会抛出 TypeError
+Primitive types (numbers, string, bool) are converted to the corresponding JavaScript primitives.
 
-	      有多个返回值的函数返回一个数组。如果最后一个返回值是一个 error，它不会被返回，而是被转换成一个 JS 异常。如果错误是 *Exception，它将被原样抛出，否则它将被包裹在一个 GoError 中
-	      注意，如果正好有两个返回值，并且最后一个是 error，函数会原样返回第一个值，而不是一个数组
+# Strings
 
-	   # Structs
-	      struct 被转换为类似对象的值。字段和方法可以作为属性使用，它们的值是这个方法（ToValue()）的结果应用于相应的 Go 值
-	      字段属性是可写的、不可配置的，方法属性是不可写和不可配置的
-	      试图定义一个新的属性或删除一个现有的属性将会失败（在严格模式下抛出），除非它是一个 Symbol 属性。符号属性只存在于包装器中，不影响底层的 Go 值
-	      请注意，由于每次访问一个属性都会创建一个包装器，因此可能会导致一些意想不到的结果，例如：
+Because of the difference in internal string representation between ECMAScript (which uses UTF-16) and Go (which uses
+UTF-8) conversion from JS to Go may be lossy. In particular, code points that can be part of UTF-16 surrogate pairs
+(0xD800-0xDFFF) cannot be represented in UTF-8 unless they form a valid surrogate pair and are replaced with
+utf8.RuneError.
 
-			type Field struct{
-			}
-			type S struct {
-				Field *Field
-			}
-			var s = S{
-				Field: &Field{},
-		 	}
-		 	vm := New()
-		 	vm.Set("s", &s)
-		 	res, err := vm.RunString(`
-		 		var sym = Symbol(66);
-		 		var field1 = s.Field;
-		 		field1[sym] = true;
-		 		var field2 = s.Field;
-		 		field1 === field2; // true, 因为 == 操作比较的是被包装的值，而不是包装器
-		 		field1[sym] === true; // true
-		 		field2[sym] === undefined; // true
-		 	`)
+The string value must be a valid UTF-8. If it is not, invalid characters are replaced with utf8.RuneError, but
+the behaviour of a subsequent Export() is unspecified (it may return the original value, or a value with replaced
+invalid characters).
 
-	      这同样适用于来自 map 和 slice 的值
+# Nil
 
-	   # 对 time.Time 的处理
-	      time.Time 没有得到特殊的处理，因此它的转换就像其他的结构一样，提供对其所有方法的访问
-	      这样做是故意的，而不是将其转换为 Date，因为这两种类型并不完全兼容，time.Time 包含时区，而 JS 的 Date 不包含，因此隐含地进行转换会导致信息的丢失
-	      如果你需要将其转换为 Date，可以在 JS 中完成。
+Nil is converted to null.
 
-			var d = new Date(goval.UnixNano()/1e6);
+# Functions
 
-	      或者在 Go 中完成：
+func(FunctionCall) Value is treated as a native JavaScript function. This increases performance because there are no
+automatic argument and return value type conversions (which involves reflect). Attempting to use
+the function as a constructor will result in a TypeError.
 
-		 	now := time.Now()
-		 	vm := New()
-		 	val, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(now.UnixNano()/1e6))
-		 	if err != nil {
-				...
-		 	}
-		 	vm.Set("d", val)
+func(FunctionCall, *Runtime) Value is treated as above, except the *Runtime is also passed as a parameter.
 
-	      请注意，Value.Export() 对于一个 Date 值会返回包含当地时区的 time.Time
+func(ConstructorCall) *Object is treated as a native constructor, allowing to use it with the new
+operator:
 
-	   # Maps
-	      带有字符串或整数键类型的 map 被转换为 host 对象，其行为大体上与 Javascript 对象类似
+	func MyObject(call goja.ConstructorCall) *goja.Object {
+	   // call.This contains the newly created object as per http://www.ecma-international.org/ecma-262/5.1/index.html#sec-13.2.2
+	   // call.Arguments contain arguments passed to the function
 
-	   # 带有方法的 Maps
-	      如果一个 map 类型定义了方法，那么产生的 Object 的属性代表了它的方法，而不是通过 map 的 key
-	      这是因为在 Javascript中，object.key 和 object[key] 之间是没有区别的，这一点与 Go 不同
-	      如果需要访问 map 的值，可以通过定义另一个方法来实现，也可以通过定义一个外部 getter 函数
+	   call.This.Set("method", method)
 
-	   # Slices
-	      slice 被转换为 host 对象，其行为在很大程度上类似于 Javascript 的数组。它有适当的原型，所有常用的方法都可以使用
-	      然而，有一点需要注意：转换后的数组不能包含空洞(因为 Go slice 不能)。这意味着 hasOwnProperty(n) 总是在 n < length 时返回 true
-	      删除一个 索引小于 length 的项将被设置为零值（但属性会保留）。nil slice 元素将被转换为 null
-	      访问一个超过 length 的元素会返回 undefined。也请看上面的警告，关于将 slice 作为值（相较于指针）
+	   //...
 
-	   # 数组
-	      数组的转换与 slice 的转换类似，只是产生的数组不能调整大小（length 属性是不可写的）
-	      任何其他类型被转换为基于反射的通用 host 对象。根据底层类型的不同，它的行为类似于与数字、字符串、布尔值或对象
-	      请注意，底层类型不会丢失，调用 Export() 返回原始的 Go 值。这适用于所有基于反射的类型
+	   // If return value is a non-nil *Object, it will be used instead of call.This
+	   // This way it is possible to return a Go struct or a map converted
+	   // into goja.Value using ToValue(), however in this case
+	   // instanceof will not work as expected, unless you set the prototype:
+	   //
+	   // instance := &myCustomStruct{}
+	   // instanceValue := vm.ToValue(instance).(*Object)
+	   // instanceValue.SetPrototype(call.This.Prototype())
+	   // return instanceValue
+	   return nil
+	}
+
+	runtime.Set("MyObject", MyObject)
+
+Then it can be used in JS as follows:
+
+	var o = new MyObject(arg);
+	var o1 = MyObject(arg); // same thing
+	o instanceof MyObject && o1 instanceof MyObject; // true
+
+When a native constructor is called directly (without the new operator) its behavior depends on
+this value: if it's an Object, it is passed through, otherwise a new one is created exactly as
+if it was called with the new operator. In either case call.NewTarget will be nil.
+
+func(ConstructorCall, *Runtime) *Object is treated as above, except the *Runtime is also passed as a parameter.
+
+Any other Go function is wrapped so that the arguments are automatically converted into the required Go types and the
+return value is converted to a JavaScript value (using this method).  If conversion is not possible, a TypeError is
+thrown.
+
+Functions with multiple return values return an Array. If the last return value is an `error` it is not returned but
+converted into a JS exception. If the error is *Exception, it is thrown as is, otherwise it's wrapped in a GoEerror.
+Note that if there are exactly two return values and the last is an `error`, the function returns the first value as is,
+not an Array.
+
+# Structs
+
+Structs are converted to Object-like values. Fields and methods are available as properties, their values are
+results of this method (ToValue()) applied to the corresponding Go value.
+
+Field properties are writable and non-configurable. Method properties are non-writable and non-configurable.
+
+Attempt to define a new property or delete an existing property will fail (throw in strict mode) unless it's a Symbol
+property. Symbol properties only exist in the wrapper and do not affect the underlying Go value.
+Note that because a wrapper is created every time a property is accessed it may lead to unexpected results such as this:
+
+	 type Field struct{
+	 }
+	 type S struct {
+		Field *Field
+	 }
+	 var s = S{
+		Field: &Field{},
+	 }
+	 vm := New()
+	 vm.Set("s", &s)
+	 res, err := vm.RunString(`
+	 var sym = Symbol(66);
+	 var field1 = s.Field;
+	 field1[sym] = true;
+	 var field2 = s.Field;
+	 field1 === field2; // true, because the equality operation compares the wrapped values, not the wrappers
+	 field1[sym] === true; // true
+	 field2[sym] === undefined; // also true
+	 `)
+
+The same applies to values from maps and slices as well.
+
+# Handling of time.Time
+
+time.Time does not get special treatment and therefore is converted just like any other `struct` providing access to
+all its methods. This is done deliberately instead of converting it to a `Date` because these two types are not fully
+compatible: `time.Time` includes zone, whereas JS `Date` doesn't. Doing the conversion implicitly therefore would
+result in a loss of information.
+
+If you need to convert it to a `Date`, it can be done either in JS:
+
+	var d = new Date(goval.UnixNano()/1e6);
+
+... or in Go:
+
+	 now := time.Now()
+	 vm := New()
+	 val, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(now.UnixNano()/1e6))
+	 if err != nil {
+		...
+	 }
+	 vm.Set("d", val)
+
+Note that Value.Export() for a `Date` value returns time.Time in local timezone.
+
+# Maps
+
+Maps with string or integer key type are converted into host objects that largely behave like a JavaScript Object.
+
+# Maps with methods
+
+If a map type has at least one method defined, the properties of the resulting Object represent methods, not map keys.
+This is because in JavaScript there is no distinction between 'object.key` and `object[key]`, unlike Go.
+If access to the map values is required, it can be achieved by defining another method or, if it's not possible, by
+defining an external getter function.
+
+# Slices
+
+Slices are converted into host objects that behave largely like JavaScript Array. It has the appropriate
+prototype and all the usual methods should work. There is, however, a caveat: converted Arrays may not contain holes
+(because Go slices cannot). This means that hasOwnProperty(n) always returns `true` if n < length. Deleting an item with
+an index < length will set it to a zero value (but the property will remain). Nil slice elements are be converted to
+`null`. Accessing an element beyond `length` returns `undefined`. Also see the warning above about passing slices as
+values (as opposed to pointers).
+
+# Arrays
+
+Arrays are converted similarly to slices, except the resulting Arrays are not resizable (and therefore the 'length'
+property is non-writable).
+
+Any other type is converted to a generic reflect based host object. Depending on the underlying type it behaves similar
+to a Number, String, Boolean or Object.
+
+Note that the underlying type is not lost, calling Export() returns the original Go value. This applies to all
+reflect based types.
 */
-func (r *Runtime) ToValue(i any) Value {
+func (r *Runtime) ToValue(i interface{}) Value {
+	return r.toValue(i, reflect.Value{})
+}
+
+func (r *Runtime) toValue(i interface{}, origValue reflect.Value) Value {
 	switch i := i.(type) {
 	case nil:
 		return _null
@@ -1720,7 +1865,7 @@ func (r *Runtime) ToValue(i any) Value {
 		return floatToValue(float64(i))
 	case float64:
 		return floatToValue(i)
-	case map[string]any:
+	case map[string]interface{}:
 		if i == nil {
 			return _null
 		}
@@ -1735,25 +1880,22 @@ func (r *Runtime) ToValue(i any) Value {
 		obj.self = m
 		m.init()
 		return obj
-	case []any:
-		if i == nil {
-			return _null
-		}
+	case []interface{}:
 		return r.newObjectGoSlice(&i).val
-	case *[]any:
+	case *[]interface{}:
 		if i == nil {
 			return _null
 		}
 		return r.newObjectGoSlice(i).val
 	}
 
-	return r.reflectValueToValue(reflect.ValueOf(i))
-}
+	if !origValue.IsValid() {
+		origValue = reflect.ValueOf(i)
+	}
 
-func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 	value := origValue
 	for value.Kind() == reflect.Ptr {
-		value = reflect.Indirect(value)
+		value = value.Elem()
 	}
 
 	if !value.IsValid() {
@@ -1775,8 +1917,8 @@ func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 							val:        obj,
 							extensible: true,
 						},
-						origValue: origValue,
-						value:     value,
+						origValue:   origValue,
+						fieldsValue: value,
 					},
 				}
 				m.init()
@@ -1791,8 +1933,8 @@ func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 				baseObject: baseObject{
 					val: obj,
 				},
-				origValue: origValue,
-				value:     value,
+				origValue:   origValue,
+				fieldsValue: value,
 			},
 		}
 		a.init()
@@ -1806,8 +1948,8 @@ func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 					baseObject: baseObject{
 						val: obj,
 					},
-					origValue: origValue,
-					value:     value,
+					origValue:   origValue,
+					fieldsValue: value,
 				},
 			},
 		}
@@ -1815,8 +1957,7 @@ func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 		obj.self = a
 		return obj
 	case reflect.Func:
-		name := unistring.NewFromString(runtime.FuncForPC(value.Pointer()).Name())
-		return r.newNativeFunc(r.wrapReflectFunc(value), nil, name, nil, value.Type().NumIn())
+		return r.newWrappedFunc(value)
 	}
 
 	obj := &Object{runtime: r}
@@ -1824,8 +1965,8 @@ func (r *Runtime) reflectValueToValue(origValue reflect.Value) Value {
 		baseObject: baseObject{
 			val: obj,
 		},
-		origValue: origValue,
-		value:     value,
+		origValue:   origValue,
+		fieldsValue: value,
 	}
 	obj.self = o
 	o.init()
@@ -1839,7 +1980,7 @@ func (r *Runtime) wrapReflectFunc(value reflect.Value) func(FunctionCall) Value 
 		var in []reflect.Value
 
 		if l := len(call.Arguments); l < nargs {
-			// 用零值填补缺失的参数
+			// fill missing arguments with zero values
 			n := nargs
 			if typ.IsVariadic() {
 				n--
@@ -1865,7 +2006,7 @@ func (r *Runtime) wrapReflectFunc(value reflect.Value) func(FunctionCall) Value 
 				}
 
 				t = typ.In(n).Elem()
-			} else if n > nargs-1 {
+			} else if n > nargs-1 { // ignore extra arguments
 				break
 			} else {
 				t = typ.In(n)
@@ -1901,7 +2042,7 @@ func (r *Runtime) wrapReflectFunc(value reflect.Value) func(FunctionCall) Value 
 		case 1:
 			return r.ToValue(out[0].Interface())
 		default:
-			s := make([]any, len(out))
+			s := make([]interface{}, len(out))
 			for i, v := range out {
 				s[i] = v.Interface()
 			}
@@ -2102,10 +2243,11 @@ func (r *Runtime) wrapJSFunc(fn Callable, typ reflect.Type) func(args []reflect.
 			jsArgs[i] = r.ToValue(arg.Interface())
 		}
 
-		results = make([]reflect.Value, typ.NumOut())
+		numOut := typ.NumOut()
+		results = make([]reflect.Value, numOut)
 		res, err := fn(_undefined, jsArgs...)
 		if err == nil {
-			if typ.NumOut() > 0 {
+			if numOut > 0 {
 				v := reflect.New(typ.Out(0)).Elem()
 				err = r.toReflectValue(res, v, &objectExportCtx{})
 				if err == nil {
@@ -2115,8 +2257,17 @@ func (r *Runtime) wrapJSFunc(fn Callable, typ reflect.Type) func(args []reflect.
 		}
 
 		if err != nil {
-			if typ.NumOut() == 2 && typ.Out(1).Name() == "error" {
-				results[1] = reflect.ValueOf(err).Convert(typ.Out(1))
+			if numOut > 0 && typ.Out(numOut-1) == reflectTypeError {
+				if ex, ok := err.(*Exception); ok {
+					if exo, ok := ex.val.(*Object); ok {
+						if v := exo.self.getStr("value", nil); v != nil {
+							if v.ExportType().AssignableTo(reflectTypeError) {
+								err = v.Export().(error)
+							}
+						}
+					}
+				}
+				results[numOut-1] = reflect.ValueOf(err).Convert(typ.Out(numOut - 1))
 			} else {
 				panic(err)
 			}
@@ -2132,48 +2283,70 @@ func (r *Runtime) wrapJSFunc(fn Callable, typ reflect.Type) func(args []reflect.
 	}
 }
 
-/*
-ExportTo 将一个 Javascript 值转换为指定的 Go 值。第二个参数必须是一个非空的指针，如果不能转换，则返回错误
-
-	关于具体案例的说明:
-
-	# 空接口
-	   导出为一个空的 any，与 Value.Export() 产生的类型相同的值
-
-	# 数值类型
-	   导出到数字类型使用标准的 ECMAScript 转换操作，与向非钳制类型的数组项赋值时使用相同
-
-	# 函数
-	   导出到一个 func 将创建一个严格类型的'网关'到一个可以从 Go 中调用的 ES 函数内
-	   使用 Runtime.ToValue() 将参数转换为 ES 值。如果 func 没有返回值，则返回值被忽略。如果 func 正好有一个返回值，
-	   则使用 ExportTo() 将其转换为适当的类型。如果 func 正好有 2 个返回值，并且第二个值是 error ，那么异常将被捕获并作为*Exception返回
-	   在所有其他情况下，异常会导致 panic。任何额外的返回值都被清零
-
-	   注意，如果你想捕捉并返回异常作为 error，并且你不需要返回值，func(...) error 将不能像预期那样工作。在这种情况下，error 被映射到函数的返回值，而不是异常，这仍然会导致 panic
-	   使用 func(...) (Value, error) 代替，并且忽略Value
-
-	   'this' 的值将永远被设置为 'undefined'
-
-	# map 类型
-	   一个 ES map 可以被导出到 Go map 类型中。如果任何导出的键值是非哈希的，操作就会产生 panic（就像 reflect.Value.SetMapIndex() 那样）
-	   将一个 ES Set 导出到一个 map 类型，导致 map 被填充了（元素）->（零值）键/值对。如果有任何值是非哈希的，操作就会产生 panic（就像reflect.Value.SetMapIndex()那样）
-	   Symbol.iterator 被忽略了，任何其他对象都会用自己的可枚举的非符号属性来填充 map
-
-	# slice 类型
-	   将一个 ES Set 导出到一个 slice 类型中，会导致其元素被导出
-	   将任何实现可迭代协议的对象导出为 slice 类型，都将导致 slice 被迭代的结果所填充
-	   数组被视为可迭代（即覆盖 Symbol.iterator 会影响结果）
-	   如果一个对象有 length 属性，并且不是一个函数，那么它就被当作数组一样处理。产生的 slice 将包含 obj[0], ... obj[length-1]
-	   对于任何其他对象，将返回一个错误
-
-	# 数组类型
-	   只要长度匹配，任何可以导出为 slice 类型的东西也可以导出为数组类型。如果不匹配，就会返回一个错误
-
-	# Proxy
-	   代理对象的处理方式与从 ES 代码中访问它们的属性（如 length 或 Symbol.iterator）相同。这意味着将它们导出到 Slice 类型中可以工作，
-	   但是将代理的 map 导出到 map 类型中不会同时导出其内容，因为代理不被认可为 map。这也适用于代理的 Set
-*/
-func (r *Runtime) ExportTo(v Value, target any) error {
+// ExportTo converts a JavaScript value into the specified Go value. The second parameter must be a non-nil pointer.
+// Returns error if conversion is not possible.
+//
+// Notes on specific cases:
+//
+// # Empty interface
+//
+// Exporting to an interface{} results in a value of the same type as Value.Export() would produce.
+//
+// # Numeric types
+//
+// Exporting to numeric types uses the standard ECMAScript conversion operations, same as used when assigning
+// values to non-clamped typed array items, e.g. https://262.ecma-international.org/#sec-toint32.
+//
+// # Functions
+//
+// Exporting to a 'func' creates a strictly typed 'gateway' into an ES function which can be called from Go.
+// The arguments are converted into ES values using Runtime.ToValue(). If the func has no return values,
+// the return value is ignored. If the func has exactly one return value, it is converted to the appropriate
+// type using ExportTo(). If the last return value is 'error', exceptions are caught and returned as *Exception
+// (instances of GoError are unwrapped, i.e. their 'value' is returned instead). In all other cases exceptions
+// result in a panic. Any extra return values are zeroed.
+//
+// 'this' value will always be set to 'undefined'.
+//
+// For a more low-level mechanism see AssertFunction().
+//
+// # Map types
+//
+// An ES Map can be exported into a Go map type. If any exported key value is non-hashable, the operation panics
+// (as reflect.Value.SetMapIndex() would). Symbol.iterator is ignored.
+//
+// Exporting an ES Set into a map type results in the map being populated with (element) -> (zero value) key/value
+// pairs. If any value is non-hashable, the operation panics (as reflect.Value.SetMapIndex() would).
+// Symbol.iterator is ignored.
+//
+// Any other Object populates the map with own enumerable non-symbol properties.
+//
+// # Slice types
+//
+// Exporting an ES Set into a slice type results in its elements being exported.
+//
+// Exporting any Object that implements the iterable protocol (https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterable_protocol)
+// into a slice type results in the slice being populated with the results of the iteration.
+//
+// Array is treated as iterable (i.e. overwriting Symbol.iterator affects the result).
+//
+// If an object has a 'length' property and is not a function it is treated as array-like. The resulting slice
+// will contain obj[0], ... obj[length-1].
+//
+// For any other Object an error is returned.
+//
+// # Array types
+//
+// Anything that can be exported to a slice type can also be exported to an array type, as long as the lengths
+// match. If they do not, an error is returned.
+//
+// # Proxy
+//
+// Proxy objects are treated the same way as if they were accessed from ES code in regard to their properties
+// (such as 'length' or [Symbol.iterator]). This means exporting them to slice types works, however
+// exporting a proxied Map into a map type does not produce its contents, because the Proxy is not recognised
+// as a Map. Same applies to a proxied Set.
+func (r *Runtime) ExportTo(v Value, target interface{}) error {
 	tval := reflect.ValueOf(target)
 	if tval.Kind() != reflect.Ptr || tval.IsNil() {
 		return errors.New("target must be a non-nil pointer")
@@ -2181,13 +2354,17 @@ func (r *Runtime) ExportTo(v Value, target any) error {
 	return r.toReflectValue(v, tval.Elem(), &objectExportCtx{})
 }
 
+// GlobalObject returns the global object.
 func (r *Runtime) GlobalObject() *Object {
 	return r.globalObject
 }
 
-// Set 在全局环境中设置指定的变量
-// 相当于在非严格模式下运行 "name = value"，需要首先使用 ToValue() 转换数值
-func (r *Runtime) Set(name string, value any) error {
+// Set the specified variable in the global context.
+// Equivalent to running "name = value" in non-strict mode.
+// The value is first converted using ToValue().
+// Note, this is not the same as GlobalObject().Set(name, value),
+// because if a global lexical binding (let or const) exists, it is set instead.
+func (r *Runtime) Set(name string, value interface{}) error {
 	return r.try(func() {
 		name := unistring.NewFromString(name)
 		v := r.ToValue(value)
@@ -2199,10 +2376,11 @@ func (r *Runtime) Set(name string, value any) error {
 	})
 }
 
-// Get 在全局环境中获取指定的变量
-// 相当于在非严格模式下通过名称解除引用一个变量。如果变量未被定义，则返回nil
-// 注意，这与 GlobalObject().Get(name) 不同，因为如果存在一个全局词法绑定（let 或 const），就会使用它
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将以 *Exception 的形式出现
+// Get the specified variable in the global context.
+// Equivalent to dereferencing a variable by name in non-strict mode. If variable is not defined returns nil.
+// Note, this is not the same as GlobalObject().Get(name),
+// because if a global lexical binding (let or const) exists, it is used instead.
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
 func (r *Runtime) Get(name string) (ret Value) {
 	r.tryPanic(func() {
 		n := unistring.NewFromString(name)
@@ -2215,29 +2393,32 @@ func (r *Runtime) Get(name string) (ret Value) {
 	return
 }
 
-// SetRandSource 为这个 Runtime 设置随机源。如果不调用，则使用默认的 math/rand
+// SetRandSource sets random source for this Runtime. If not called, the default math/rand is used.
 func (r *Runtime) SetRandSource(source RandSource) {
 	r.rand = source
 }
 
-// SetTimeSource 为这个Runtime设置当前的时间源，如果不调用，则使用默认的time.Now()
+// SetTimeSource sets the current time source for this Runtime.
+// If not called, the default time.Now() is used.
 func (r *Runtime) SetTimeSource(now Now) {
 	r.now = now
 }
 
-// SetParserOptions 设置解析器选项，以便在代码中被 RunString、RunScript 和 eval() 使用
+// SetParserOptions sets parser options to be used by RunString, RunScript and eval() within the code.
 func (r *Runtime) SetParserOptions(opts ...parser.Option) {
 	r.parserOptions = opts
 }
 
-// SetMaxCallStackSize 设置最大的函数调用深度。当超过时，一个 *StackOverflowError 被抛出并由 RunProgram 或 Callable 调用返回
-// 这对于防止无限递归引起的内存耗尽很有用。默认值是 math.MaxInt32
-// 这个方法（和其他的 Set* 方法一样）对于并发使用是不安全的，只能从 vm 所在的协程或者当 vm 没有运行时调用
+// SetMaxCallStackSize sets the maximum function call depth. When exceeded, a *StackOverflowError is thrown and
+// returned by RunProgram or by a Callable call. This is useful to prevent memory exhaustion caused by an
+// infinite recursion. The default value is math.MaxInt32.
+// This method (as the rest of the Set* methods) is not safe for concurrent use and may only be called
+// from the vm goroutine or when the vm is not running.
 func (r *Runtime) SetMaxCallStackSize(size int) {
 	r.vm.maxCallStackSize = size
 }
 
-// New 等同于 new 运算符，允许从 Go 中直接调用它
+// New is an equivalent of the 'new' operator allowing to call it directly from Go.
 func (r *Runtime) New(construct Value, args ...Value) (o *Object, err error) {
 	err = r.try(func() {
 		o = r.builtin_new(r.toObject(construct), args)
@@ -2245,9 +2426,12 @@ func (r *Runtime) New(construct Value, args ...Value) (o *Object, err error) {
 	return
 }
 
-// Callable 代表一个可以从 Go 中调用的 Javascript函数
+// Callable represents a JavaScript function that can be called from Go.
 type Callable func(this Value, args ...Value) (Value, error)
 
+// AssertFunction checks if the Value is a function and returns a Callable.
+// Note, for classes this returns a callable and a 'true', however calling it will always result in a TypeError.
+// For classes use AssertConstructor().
 func AssertFunction(v Value) (Callable, bool) {
 	if obj, ok := v.(*Object); ok {
 		if f, ok := obj.self.assertCallable(); ok {
@@ -2265,9 +2449,11 @@ func AssertFunction(v Value) (Callable, bool) {
 	return nil, false
 }
 
-// Constructor 构造函数是一个可以用来调用构造函数的类型。第一个参数（newTarget）可以是 nil，将其设置为构造函数本身
+// Constructor is a type that can be used to call constructors. The first argument (newTarget) can be nil
+// which sets it to the constructor function itself.
 type Constructor func(newTarget *Object, args ...Value) (*Object, error)
 
+// AssertConstructor checks if the Value is a constructor and returns a Constructor.
 func AssertConstructor(v Value) (Constructor, bool) {
 	if obj, ok := v.(*Object); ok {
 		if ctor := obj.self.assertConstructor(); ctor != nil {
@@ -2299,69 +2485,62 @@ func (r *Runtime) runWrapped(f func()) (err error) {
 	if ex != nil {
 		err = ex
 	}
-	r.vm.clearStack()
 	if len(r.vm.callStack) == 0 {
 		r.leave()
+	} else {
+		r.vm.clearStack()
 	}
 	return
 }
 
-// IsUndefined 如果提供的值是未定义的，则返回 true
-// 注意，它检查的是真正的未定义，而不是全局对象的'未定义'属性
+// IsUndefined returns true if the supplied Value is undefined. Note, it checks against the real undefined, not
+// against the global object's 'undefined' property.
 func IsUndefined(v Value) bool {
 	return v == _undefined
 }
 
-// IsNull 如果 Value 的值是 null，则返回 true
+// IsNull returns true if the supplied Value is null.
 func IsNull(v Value) bool {
 	return v == _null
 }
 
-// IsNaN 如果 Value 是 NaN，则返回 true
+// IsNaN returns true if the supplied value is NaN.
 func IsNaN(v Value) bool {
 	f, ok := v.(valueFloat)
 	return ok && math.IsNaN(float64(f))
 }
 
-// IsInfinity 如果 Value 是正负无穷大，则返回 true
+// IsInfinity returns true if the supplied is (+/-)Infinity
 func IsInfinity(v Value) bool {
 	return v == _positiveInf || v == _negativeInf
 }
 
-// Undefined 返回 JS 的未定义值。注意，如果全局的 "未定义" 属性被改变，它仍然返回原来的值
+// Undefined returns JS undefined value. Note if global 'undefined' property is changed this still returns the original value.
 func Undefined() Value {
 	return _undefined
 }
 
-// Null 返回 JS null 值
+// Null returns JS null value.
 func Null() Value {
 	return _null
 }
 
-// NaN 返回 JS NaN 值
+// NaN returns a JS NaN value.
 func NaN() Value {
 	return _NaN
 }
 
-// PositiveInf 返回 JS 正无穷大值
+// PositiveInf returns a JS +Inf value.
 func PositiveInf() Value {
 	return _positiveInf
 }
 
-// NegativeInf 返回 JS 负无穷大值
+// NegativeInf returns a JS -Inf value.
 func NegativeInf() Value {
 	return _negativeInf
 }
 
-func False() Value {
-	return valueFalse
-}
-
-func True() Value {
-	return valueTrue
-}
-
-func tryFunc(f func()) (ret any) {
+func tryFunc(f func()) (ret interface{}) {
 	defer func() {
 		ret = recover()
 	}()
@@ -2383,7 +2562,7 @@ func (r *Runtime) tryPanic(f func()) {
 	}
 }
 
-func (r *Runtime) toObject(v Value, args ...any) *Object {
+func (r *Runtime) toObject(v Value, args ...interface{}) *Object {
 	if obj, ok := v.(*Object); ok {
 		return obj
 	}
@@ -2490,7 +2669,15 @@ func (r *Runtime) getIterator(obj Value, method func(FunctionCall) Value) *itera
 	iter := r.toObject(method(FunctionCall{
 		This: obj,
 	}))
-	next := toMethod(iter.self.getStr("next", nil))
+
+	var next func(FunctionCall) Value
+
+	if obj, ok := iter.self.getStr("next", nil).(*Object); ok {
+		if call, ok := obj.self.assertCallable(); ok {
+			next = call
+		}
+	}
+
 	return &iteratorRecord{
 		iterator: iter,
 		next:     next,
@@ -2500,6 +2687,9 @@ func (r *Runtime) getIterator(obj Value, method func(FunctionCall) Value) *itera
 func (ir *iteratorRecord) iterate(step func(Value)) {
 	r := ir.iterator.runtime
 	for {
+		if ir.next == nil {
+			panic(r.NewTypeError("iterator.next is missing or not a function"))
+		}
 		res := r.toObject(ir.next(FunctionCall{This: ir.iterator}))
 		if nilSafe(res.self.getStr("done", nil)).ToBoolean() {
 			break
@@ -2572,21 +2762,20 @@ func (r *Runtime) getHash() *maphash.Hash {
 	return r.hash
 }
 
-// leave 当顶层函数正常返回时被调用（即控制被传递到 Runtime 之外）
+// called when the top level function returns normally (i.e. control is passed outside the Runtime).
 func (r *Runtime) leave() {
-	for {
-		jobs := r.jobQueue
-		r.jobQueue = nil
-		if len(jobs) == 0 {
-			break
-		}
+	var jobs []func()
+	for len(r.jobQueue) > 0 {
+		jobs, r.jobQueue = r.jobQueue, jobs[:0]
 		for _, job := range jobs {
 			job()
 		}
 	}
+	r.jobQueue = nil
+	r.vm.stack = nil
 }
 
-// leaveAbrupt 当顶层函数返回时被调用（即控制权被传递到Runtime之外），但它是由于一个中断造成的
+// called when the top level function returns (i.e. control is passed outside the Runtime) but it was due to an interrupt
 func (r *Runtime) leaveAbrupt() {
 	r.jobQueue = nil
 	r.ClearInterrupt()
@@ -2645,6 +2834,7 @@ func shrinkCap(newSize, oldCap int) int {
 }
 
 func growCap(newSize, oldSize, oldCap int) int {
+	// Use the same algorithm as in runtime.growSlice
 	doublecap := oldCap + oldCap
 	if newSize > doublecap {
 		return newSize
@@ -2653,9 +2843,13 @@ func growCap(newSize, oldSize, oldCap int) int {
 			return doublecap
 		} else {
 			cap := oldCap
+			// Check 0 < cap to detect overflow
+			// and prevent an infinite loop.
 			for 0 < cap && cap < newSize {
 				cap += cap / 4
 			}
+			// Return the requested cap when
+			// the calculation overflowed.
 			if cap <= 0 {
 				return newSize
 			}
@@ -2739,6 +2933,7 @@ func strToArrayIdx(s unistring.String) uint32 {
 	}
 	var n uint32
 	if l < 10 {
+		// guaranteed not to overflow
 		for i := 0; i < len(s); i++ {
 			c := s[i]
 			if c < '0' || c > '9' {
@@ -2749,6 +2944,7 @@ func strToArrayIdx(s unistring.String) uint32 {
 		return n
 	}
 	if l > 10 {
+		// guaranteed to overflow
 		return math.MaxUint32
 	}
 	c9 := s[9]
@@ -2791,6 +2987,7 @@ func strToInt32(s unistring.String) (int32, bool) {
 	}
 	var n uint32
 	if l < 10 {
+		// guaranteed not to overflow
 		for i := 0; i < len(s); i++ {
 			c := s[i]
 			if c < '0' || c > '9' {
@@ -2799,11 +2996,13 @@ func strToInt32(s unistring.String) (int32, bool) {
 			n = n*10 + uint32(c-'0')
 		}
 	} else if l > 10 {
+		// guaranteed to overflow
 		return -1, false
 	} else {
 		c9 := s[9]
 		if c9 >= '0' {
 			if !neg && c9 > '7' || c9 > '8' {
+				// guaranteed to overflow
 				return -1, false
 			}
 			for i := 0; i < 9; i++ {
@@ -2814,6 +3013,7 @@ func strToInt32(s unistring.String) (int32, bool) {
 				n = n*10 + uint32(c-'0')
 			}
 			if n >= math.MaxInt32/10+1 {
+				// valid number, but it overflows integer
 				return 0, false
 			}
 			n = n*10 + uint32(c9-'0')
@@ -2844,6 +3044,7 @@ func strToInt64(s unistring.String) (int64, bool) {
 	}
 	var n uint64
 	if l < 19 {
+		// guaranteed not to overflow
 		for i := 0; i < len(s); i++ {
 			c := s[i]
 			if c < '0' || c > '9' {
@@ -2852,11 +3053,13 @@ func strToInt64(s unistring.String) (int64, bool) {
 			n = n*10 + uint64(c-'0')
 		}
 	} else if l > 19 {
+		// guaranteed to overflow
 		return -1, false
 	} else {
 		c18 := s[18]
 		if c18 >= '0' {
 			if !neg && c18 > '7' || c18 > '8' {
+				// guaranteed to overflow
 				return -1, false
 			}
 			for i := 0; i < 18; i++ {
@@ -2867,6 +3070,7 @@ func strToInt64(s unistring.String) (int64, bool) {
 				n = n*10 + uint64(c-'0')
 			}
 			if n >= math.MaxInt64/10+1 {
+				// valid number, but it overflows integer
 				return 0, false
 			}
 			n = n*10 + uint64(c18-'0')
@@ -2889,6 +3093,11 @@ func strToInt(s unistring.String) (int, bool) {
 	return int(n), ok
 }
 
+// Attempts to convert a string into a canonical integer.
+// On success returns (number, true).
+// If it was a canonical number, but not an integer returns (0, false). This includes -0 and overflows.
+// In all other cases returns (-1, false).
+// See https://262.ecma-international.org/#sec-canonicalnumericindexstring
 func strToIntNum(s unistring.String) (int, bool) {
 	n, ok := strToInt64(s)
 	if n == 0 {

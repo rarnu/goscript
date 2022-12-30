@@ -1,13 +1,14 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"reflect"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type objectGoMapSimple struct {
 	baseObject
-	data map[string]any
+	data map[string]interface{}
 }
 
 func (o *objectGoMapSimple) init() {
@@ -46,10 +47,12 @@ func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bo
 		return true
 	}
 	if proto := o.prototype; proto != nil {
+		// we know it's foreign because prototype loops are not allowed
 		if res, ok := proto.self.setForeignStr(name, val, o.val, throw); ok {
 			return res
 		}
 	}
+	// new property
 	if !o.extensible {
 		o.val.runtime.typeErrorResult(throw, "Cannot add property %s, object is not extensible", name)
 		return false
@@ -94,6 +97,24 @@ func (o *objectGoMapSimple) defineOwnPropertyStr(name unistring.String, descr Pr
 	return false
 }
 
+/*
+func (o *objectGoMapSimple) toPrimitiveNumber() Value {
+	return o.toPrimitiveString()
+}
+
+func (o *objectGoMapSimple) toPrimitiveString() Value {
+	return stringObjectObject
+}
+
+func (o *objectGoMapSimple) toPrimitive() Value {
+	return o.toPrimitiveString()
+}
+
+func (o *objectGoMapSimple) assertCallable() (call func(FunctionCall) Value, ok bool) {
+	return nil, false
+}
+*/
+
 func (o *objectGoMapSimple) deleteStr(name unistring.String, _ bool) bool {
 	delete(o.data, name.String())
 	return true
@@ -132,13 +153,14 @@ func (o *objectGoMapSimple) iterateStringKeys() iterNextFunc {
 }
 
 func (o *objectGoMapSimple) stringKeys(_ bool, accum []Value) []Value {
+	// all own keys are enumerable
 	for key := range o.data {
 		accum = append(accum, newStringValue(key))
 	}
 	return accum
 }
 
-func (o *objectGoMapSimple) export(*objectExportCtx) any {
+func (o *objectGoMapSimple) export(*objectExportCtx) interface{} {
 	return o.data
 }
 

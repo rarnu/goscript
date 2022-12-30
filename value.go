@@ -2,27 +2,29 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/ftoa"
-	"github.com/rarnu/goscript/unistring"
 	"hash/maphash"
 	"math"
 	"reflect"
 	"strconv"
 	"unsafe"
+
+	"github.com/rarnu/goscript/ftoa"
+	"github.com/rarnu/goscript/unistring"
 )
 
 var (
-	// 非协程安全，不要在包级别的 init 之外使用
+	// Not goroutine-safe, do not use for anything other than package level init
 	pkgHasher maphash.Hash
+
 	hashFalse = randomHash()
 	hashTrue  = randomHash()
 	hashNull  = randomHash()
 	hashUndef = randomHash()
 )
 
-// 非协程安全，不要在包级别的 init 之外使用
+// Not goroutine-safe, do not use for anything other than package level init
 func randomHash() uint64 {
-	_ = pkgHasher.WriteByte(0)
+	pkgHasher.WriteByte(0)
 	return pkgHasher.Sum64()
 }
 
@@ -45,22 +47,30 @@ var (
 	reflectTypeBool   = reflect.TypeOf(false)
 	reflectTypeNil    = reflect.TypeOf(nil)
 	reflectTypeFloat  = reflect.TypeOf(float64(0))
-	reflectTypeMap    = reflect.TypeOf(map[string]any{})
-	reflectTypeArray  = reflect.TypeOf([]any{})
+	reflectTypeMap    = reflect.TypeOf(map[string]interface{}{})
+	reflectTypeArray  = reflect.TypeOf([]interface{}{})
 	reflectTypeString = reflect.TypeOf("")
 	reflectTypeFunc   = reflect.TypeOf((func(FunctionCall) Value)(nil))
+	reflectTypeError  = reflect.TypeOf((*error)(nil)).Elem()
 )
 
 var intCache [256]Value
 
-// Value 表示 ECMAScript 的值
-// Export 返回一个纯粹的 Go 值，其类型取决于 Value 的类型
-// 对于整数，它是 int64
-// 对于任何其他数字（包括无穷大、NaN 和负零），它是 float64
-// 对于字符串，它是一个字符串。请注意，unicode 字符串被转换为 UTF-8，无效的编码位置用 utf8.RuneError 代替
-// 对于布尔值，它是布尔值
-// 对于 null 和 undefined，它是nil
-// 对于 Object，它取决于 Object 的类型，更多的细节在 Object.Export()
+// Value represents an ECMAScript value.
+//
+// Export returns a "plain" Go value which type depends on the type of the Value.
+//
+// For integer numbers it's int64.
+//
+// For any other numbers (including Infinities, NaN and negative zero) it's float64.
+//
+// For string it's a string. Note that unicode strings are converted into UTF-8 with invalid code points replaced with utf8.RuneError.
+//
+// For boolean it's bool.
+//
+// For null and undefined it's nil.
+//
+// For Object it depends on the Object type, see Object.Export() for more details.
 type Value interface {
 	ToInteger() int64
 	toString() valueString
@@ -74,9 +84,11 @@ type Value interface {
 	SameAs(Value) bool
 	Equals(Value) bool
 	StrictEquals(Value) bool
-	Export() any
+	Export() interface{}
 	ExportType() reflect.Type
+
 	baseObject(r *Runtime) *Object
+
 	hash(hasher *maphash.Hash) uint64
 }
 
@@ -88,6 +100,7 @@ type typeError string
 type rangeError string
 type referenceError string
 type syntaxError string
+
 type valueInt int64
 type valueFloat float64
 type valueBool bool
@@ -96,9 +109,10 @@ type valueUndefined struct {
 	valueNull
 }
 
-// Symbol 符号，是一个包含 ECMAScript Symbol 基元的 Value。符号只能用NewSymbol()来创建。不允许使用零值和复制值（即*s1 = *s2）
-// 常见的符号都可以使用 Sym* 包变量（如SymIterator）来访问
-// 符号可以被多个运行时共享
+// *Symbol is a Value containing ECMAScript Symbol primitive. Symbols must only be created
+// using NewSymbol(). Zero values and copying of values (i.e. *s1 = *s2) are not permitted.
+// Well-known Symbols can be accessed using Sym* package variables (SymIterator, etc...)
+// Symbols can be shared by multiple Runtimes.
 type Symbol struct {
 	h    uintptr
 	desc valueString
@@ -231,7 +245,7 @@ func (i valueInt) baseObject(r *Runtime) *Object {
 	return r.global.NumberPrototype
 }
 
-func (i valueInt) Export() any {
+func (i valueInt) Export() interface{} {
 	return int64(i)
 }
 
@@ -325,7 +339,7 @@ func (b valueBool) baseObject(r *Runtime) *Object {
 	return r.global.BooleanPrototype
 }
 
-func (b valueBool) Export() any {
+func (b valueBool) Export() interface{} {
 	return bool(b)
 }
 
@@ -410,6 +424,7 @@ func (n valueNull) ToBoolean() bool {
 func (n valueNull) ToObject(r *Runtime) *Object {
 	r.typeErrorResult(true, "Cannot convert undefined or null to object")
 	return nil
+	//return r.newObject()
 }
 
 func (n valueNull) ToNumber() Value {
@@ -438,7 +453,7 @@ func (n valueNull) baseObject(*Runtime) *Object {
 	return nil
 }
 
-func (n valueNull) Export() any {
+func (n valueNull) Export() interface{} {
 	return nil
 }
 
@@ -531,11 +546,11 @@ func (p *valueProperty) StrictEquals(Value) bool {
 }
 
 func (p *valueProperty) baseObject(r *Runtime) *Object {
-	r.typeErrorResult(true, "BUG: baseObject() is called on valueProperty")
+	r.typeErrorResult(true, "BUG: baseObject() is called on valueProperty") // TODO error message
 	return nil
 }
 
-func (p *valueProperty) Export() any {
+func (p *valueProperty) Export() interface{} {
 	panic("Cannot export valueProperty")
 }
 
@@ -651,7 +666,7 @@ func (f valueFloat) baseObject(r *Runtime) *Object {
 	return r.global.NumberPrototype
 }
 
-func (f valueFloat) Export() any {
+func (f valueFloat) Export() interface{} {
 	return float64(f)
 }
 
@@ -735,19 +750,30 @@ func (o *Object) baseObject(*Runtime) *Object {
 	return o
 }
 
-// Export 将 Object 导出为纯粹的 Go 类型
-// 如果对象是一个包装好的 Go 值（用 ToValue() 创建），则返回原始值
-// 如果对象是一个函数，返回 func(FunctionCall) 值。注意，在函数内部抛出的异常会导致 panic，这也会使 Runtime 处于无法使用的状态。
-// 因此，这些值只能在另一个用 Go 实现的 ES 函数里面使用。对于从 Go 中调用一个函数，请使用 AssertFunction() 或 Runtime.ExportTo()
-// 对于 Map，返回条目列表为 [][2]any
-// 对于 Set，返回元素列表为 []any
-// 对于 Proxy，返回 Proxy
-// 对于 Promise，返回 Promise
-// 对于 DynamicObject 或 DynamicArray，返回基础处理句柄
-// 对于数组，返回 []any
-// 在所有其他情况下，以 map[string]any 的形式返回可枚举的非符号属性
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
-func (o *Object) Export() (ret any) {
+// Export the Object to a plain Go type.
+// If the Object is a wrapped Go value (created using ToValue()) returns the original value.
+//
+// If the Object is a function, returns func(FunctionCall) Value. Note that exceptions thrown inside the function
+// result in panics, which can also leave the Runtime in an unusable state. Therefore, these values should only
+// be used inside another ES function implemented in Go. For calling a function from Go, use AssertFunction() or
+// Runtime.ExportTo() as described in the README.
+//
+// For a Map, returns the list of entries as [][2]interface{}.
+//
+// For a Set, returns the list of elements as []interface{}.
+//
+// For a Proxy, returns Proxy.
+//
+// For a Promise, returns Promise.
+//
+// For a DynamicObject or a DynamicArray, returns the underlying handler.
+//
+// For an array, returns its items as []interface{}.
+//
+// In all other cases returns own enumerable non-symbol properties as map[string]interface{}.
+//
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
+func (o *Object) Export() (ret interface{}) {
 	o.runtime.tryPanic(func() {
 		ret = o.self.export(&objectExportCtx{})
 	})
@@ -755,7 +781,7 @@ func (o *Object) Export() (ret any) {
 	return
 }
 
-// ExportType 返回由 Export() 返回的值的类型
+// ExportType returns the type of the value that is returned by Export().
 func (o *Object) ExportType() reflect.Type {
 	return o.self.exportType()
 }
@@ -764,20 +790,21 @@ func (o *Object) hash(*maphash.Hash) uint64 {
 	return o.getId()
 }
 
-// Get 通过名称获取一个对象的属性
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
+// Get an object's property by name.
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
 func (o *Object) Get(name string) Value {
 	return o.self.getStr(unistring.NewFromString(name), nil)
 }
 
-// GetSymbol 返回一个符号属性的值。对于常用的符号（如SymIterator、SymToStringTag等），使用 Sym* 值之一
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
+// GetSymbol returns the value of a symbol property. Use one of the Sym* values for well-known
+// symbols (such as SymIterator, SymToStringTag, etc...).
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
 func (o *Object) GetSymbol(sym *Symbol) Value {
 	return o.self.getSym(sym, nil)
 }
 
-// Keys 返回 Object 的可枚举 Key 的列表
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
+// Keys returns a list of Object's enumerable keys.
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
 func (o *Object) Keys() (keys []string) {
 	iter := &enumerableIter{
 		o:       o,
@@ -790,8 +817,8 @@ func (o *Object) Keys() (keys []string) {
 	return
 }
 
-// Symbols 返回 Object 的可枚举符号属性的列表
-// 如果在这个过程中抛出了一个 Javascript 异常，这个方法将抛出类型为 *Exception 的panic
+// Symbols returns a list of Object's enumerable symbol properties.
+// This method will panic with an *Exception if a JavaScript exception is thrown in the process.
 func (o *Object) Symbols() []*Symbol {
 	symbols := o.self.symbols(false, nil)
 	ret := make([]*Symbol, len(symbols))
@@ -801,6 +828,8 @@ func (o *Object) Symbols() []*Symbol {
 	return ret
 }
 
+// DefineDataProperty is a Go equivalent of Object.defineProperty(o, name, {value: value, writable: writable,
+// configurable: configurable, enumerable: enumerable})
 func (o *Object) DefineDataProperty(name string, value Value, writable, configurable, enumerable Flag) error {
 	return o.runtime.try(func() {
 		o.self.defineOwnPropertyStr(unistring.NewFromString(name), PropertyDescriptor{
@@ -812,6 +841,8 @@ func (o *Object) DefineDataProperty(name string, value Value, writable, configur
 	})
 }
 
+// DefineAccessorProperty is a Go equivalent of Object.defineProperty(o, name, {get: getter, set: setter,
+// configurable: configurable, enumerable: enumerable})
 func (o *Object) DefineAccessorProperty(name string, getter, setter Value, configurable, enumerable Flag) error {
 	return o.runtime.try(func() {
 		o.self.defineOwnPropertyStr(unistring.NewFromString(name), PropertyDescriptor{
@@ -823,6 +854,8 @@ func (o *Object) DefineAccessorProperty(name string, getter, setter Value, confi
 	})
 }
 
+// DefineDataPropertySymbol is a Go equivalent of Object.defineProperty(o, name, {value: value, writable: writable,
+// configurable: configurable, enumerable: enumerable})
 func (o *Object) DefineDataPropertySymbol(name *Symbol, value Value, writable, configurable, enumerable Flag) error {
 	return o.runtime.try(func() {
 		o.self.defineOwnPropertySym(name, PropertyDescriptor{
@@ -834,6 +867,8 @@ func (o *Object) DefineDataPropertySymbol(name *Symbol, value Value, writable, c
 	})
 }
 
+// DefineAccessorPropertySymbol is a Go equivalent of Object.defineProperty(o, name, {get: getter, set: setter,
+// configurable: configurable, enumerable: enumerable})
 func (o *Object) DefineAccessorPropertySymbol(name *Symbol, getter, setter Value, configurable, enumerable Flag) error {
 	return o.runtime.try(func() {
 		o.self.defineOwnPropertySym(name, PropertyDescriptor{
@@ -845,13 +880,13 @@ func (o *Object) DefineAccessorPropertySymbol(name *Symbol, getter, setter Value
 	})
 }
 
-func (o *Object) Set(name string, value any) error {
+func (o *Object) Set(name string, value interface{}) error {
 	return o.runtime.try(func() {
 		o.self.setOwnStr(unistring.NewFromString(name), o.runtime.ToValue(value), true)
 	})
 }
 
-func (o *Object) SetSymbol(name *Symbol, value any) error {
+func (o *Object) SetSymbol(name *Symbol, value interface{}) error {
 	return o.runtime.try(func() {
 		o.self.setOwnSym(name, o.runtime.ToValue(value), true)
 	})
@@ -869,20 +904,22 @@ func (o *Object) DeleteSymbol(name *Symbol) error {
 	})
 }
 
-// Prototype 返回对象的原型，与 Object.getPrototypeOf() 相同。如果原型为空，则返回nil
+// Prototype returns the Object's prototype, same as Object.getPrototypeOf(). If the prototype is null
+// returns nil.
 func (o *Object) Prototype() *Object {
 	return o.self.proto()
 }
 
-// SetPrototype 设置对象的原型，与 Object.setPrototypeOf() 相同。将 proto 设置为 nil 等同于 Object.setPrototypeOf(null)
+// SetPrototype sets the Object's prototype, same as Object.setPrototypeOf(). Setting proto to nil
+// is an equivalent of Object.setPrototypeOf(null).
 func (o *Object) SetPrototype(proto *Object) error {
 	return o.runtime.try(func() {
 		o.self.setProto(proto, true)
 	})
 }
 
-// MarshalJSON 返回对象的 JSON 表示。它等同于 JSON.stringify(o)
-// 这里实现了 json.Marshaler，这样就可以使用 json.Marshal() 而不需要 Export()
+// MarshalJSON returns JSON representation of the Object. It is equivalent to JSON.stringify(o).
+// Note, this implements json.Marshaler so that json.Marshal() can be used without the need to Export().
 func (o *Object) MarshalJSON() ([]byte, error) {
 	ctx := _builtinJSON_stringifyContext{
 		r: o.runtime,
@@ -898,6 +935,14 @@ func (o *Object) MarshalJSON() ([]byte, error) {
 	return ctx.buf.Bytes(), nil
 }
 
+// UnmarshalJSON implements the json.Unmarshaler interface. It is added to compliment MarshalJSON, because
+// some alternative JSON encoders refuse to use MarshalJSON unless UnmarshalJSON is also present.
+// It is a no-op and always returns nil.
+func (o *Object) UnmarshalJSON([]byte) error {
+	return nil
+}
+
+// ClassName returns the class name
 func (o *Object) ClassName() string {
 	return o.self.className()
 }
@@ -971,7 +1016,7 @@ func (o valueUnresolved) baseObject(*Runtime) *Object {
 	return nil
 }
 
-func (o valueUnresolved) Export() any {
+func (o valueUnresolved) Export() interface{} {
 	o.throw()
 	return nil
 }
@@ -1047,7 +1092,7 @@ func (s *Symbol) StrictEquals(o Value) bool {
 	return s.SameAs(o)
 }
 
-func (s *Symbol) Export() any {
+func (s *Symbol) Export() interface{} {
 	return s.String()
 }
 
@@ -1063,7 +1108,7 @@ func (s *Symbol) hash(*maphash.Hash) uint64 {
 	return uint64(s.h)
 }
 
-func exportValue(v Value, ctx *objectExportCtx) any {
+func exportValue(v Value, ctx *objectExportCtx) interface{} {
 	if obj, ok := v.(*Object); ok {
 		return obj.self.export(ctx)
 	}
@@ -1074,6 +1119,10 @@ func newSymbol(s valueString) *Symbol {
 	r := &Symbol{
 		desc: s,
 	}
+	// This may need to be reconsidered in the future.
+	// Depending on changes in Go's allocation policy and/or introduction of a compacting GC
+	// this may no longer provide sufficient dispersion. The alternative, however, is a globally
+	// synchronised random generator/hasher/sequencer and I don't want to go down that route just yet.
 	r.h = uintptr(unsafe.Pointer(r))
 	return r
 }
@@ -1105,7 +1154,7 @@ func funcName(prefix string, n Value) valueString {
 	return b.String()
 }
 
-func newTypeError(args ...any) typeError {
+func newTypeError(args ...interface{}) typeError {
 	msg := ""
 	if len(args) > 0 {
 		f, _ := args[0].(string)
@@ -1114,7 +1163,7 @@ func newTypeError(args ...any) typeError {
 	return typeError(msg)
 }
 
-func typeErrorResult(throw bool, args ...any) {
+func typeErrorResult(throw bool, args ...interface{}) {
 	if throw {
 		panic(newTypeError(args...))
 	}
@@ -1123,7 +1172,6 @@ func typeErrorResult(throw bool, args ...any) {
 
 func init() {
 	for i := 0; i < 256; i++ {
-		intCache[i] = valueInt(i - 128)
+		intCache[i] = valueInt(i - 256)
 	}
-	_positiveZero = intToValue(0)
 }

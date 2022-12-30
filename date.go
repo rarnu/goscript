@@ -15,8 +15,9 @@ const (
 	datetimeLayout_en_GB = "01/02/2006, 15:04:05"
 	dateLayout_en_GB     = "01/02/2006"
 	timeLayout_en_GB     = "15:04:05"
-	maxTime              = 8.64e15
-	timeUnset            = math.MinInt64
+
+	maxTime   = 8.64e15
+	timeUnset = math.MinInt64
 )
 
 type dateObject struct {
@@ -35,16 +36,21 @@ var (
 		{layout: "2006-01-02T15:04:05"},
 		{layout: "2006-01-02", dateOnly: true},
 		{layout: "2006-01-02 15:04:05"},
+
 		{layout: "2006", dateOnly: true},
 		{layout: "2006-01", dateOnly: true},
+
 		{layout: "2006T15:04"},
 		{layout: "2006-01T15:04"},
 		{layout: "2006-01-02T15:04"},
+
 		{layout: "2006T15:04:05"},
 		{layout: "2006-01T15:04:05"},
+
 		{layout: "2006T15:04Z0700"},
 		{layout: "2006-01T15:04Z0700"},
 		{layout: "2006-01-02T15:04Z0700"},
+
 		{layout: "2006T15:04:05Z0700"},
 		{layout: "2006-01T15:04:05Z0700"},
 	}
@@ -134,7 +140,7 @@ func (d *dateObject) exportType() reflect.Type {
 	return typeTime
 }
 
-func (d *dateObject) export(*objectExportCtx) any {
+func (d *dateObject) export(*objectExportCtx) interface{} {
 	if d.isSet() {
 		return d.time()
 	}

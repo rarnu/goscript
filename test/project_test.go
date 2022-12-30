@@ -3,8 +3,8 @@ package test
 import (
 	"fmt"
 	"github.com/rarnu/goscript"
-	"github.com/rarnu/goscript/console"
-	"github.com/rarnu/goscript/require"
+	"github.com/rarnu/goscript/module/console"
+	"github.com/rarnu/goscript/module/require"
 	"reflect"
 	"testing"
 )

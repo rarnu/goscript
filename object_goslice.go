@@ -1,20 +1,21 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"math"
 	"math/bits"
 	"reflect"
 	"strconv"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type objectGoSlice struct {
 	baseObject
-	data       *[]any
+	data       *[]interface{}
 	lengthProp valueProperty
 }
 
-func (r *Runtime) newObjectGoSlice(data *[]any) *objectGoSlice {
+func (r *Runtime) newObjectGoSlice(data *[]interface{}) *objectGoSlice {
 	obj := &Object{runtime: r}
 	a := &objectGoSlice{
 		baseObject: baseObject{
@@ -101,7 +102,7 @@ func (o *objectGoSlice) getOwnPropIdx(idx valueInt) Value {
 func (o *objectGoSlice) grow(size int) {
 	oldcap := cap(*o.data)
 	if oldcap < size {
-		n := make([]any, size, growCap(size, len(*o.data), oldcap))
+		n := make([]interface{}, size, growCap(size, len(*o.data), oldcap))
 		copy(n, *o.data)
 		*o.data = n
 	} else {
@@ -295,7 +296,7 @@ func (o *objectGoSlice) stringKeys(_ bool, accum []Value) []Value {
 	return accum
 }
 
-func (o *objectGoSlice) export(*objectExportCtx) any {
+func (o *objectGoSlice) export(*objectExportCtx) interface{} {
 	return *o.data
 }
 
@@ -319,7 +320,7 @@ func (o *objectGoSlice) reflectValue() reflect.Value {
 }
 
 func (o *objectGoSlice) setReflectValue(value reflect.Value) {
-	o.data = value.Addr().Interface().(*[]any)
+	o.data = value.Addr().Interface().(*[]interface{})
 }
 
 func (o *objectGoSlice) sortLen() int {

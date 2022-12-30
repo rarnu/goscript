@@ -2,13 +2,14 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"reflect"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
-// Proxy 是 ECMAScript Proxy 的 Go 封装器。对其调用 Runtime.ToValue() 会返回底层的 Proxy
-// 在 ECMAScript Proxy 上调用 Export() 会返回一个封装器
-// 使用 Runtime.NewProxy() 可以创建一个封装器
+// Proxy is a Go wrapper around ECMAScript Proxy. Calling Runtime.ToValue() on it
+// returns the underlying Proxy. Calling Export() on an ECMAScript Proxy returns a wrapper.
+// Use Runtime.NewProxy() to create one.
 type Proxy struct {
 	proxy *proxyObject
 }
@@ -864,6 +865,20 @@ func (p *proxyObject) assertCallable() (call func(FunctionCall) Value, ok bool) 
 	return nil, false
 }
 
+func (p *proxyObject) vmCall(vm *vm, n int) {
+	vm.pushCtx()
+	vm.prg = nil
+	vm.sb = vm.sp - n // so that [sb-1] points to the callee
+	ret := p.apply(FunctionCall{This: vm.stack[vm.sp-n-2], Arguments: vm.stack[vm.sp-n : vm.sp]})
+	if ret == nil {
+		ret = _undefined
+	}
+	vm.stack[vm.sp-n-2] = ret
+	vm.popCtx()
+	vm.sp -= n + 1
+	vm.pc++
+}
+
 func (p *proxyObject) assertConstructor() func(args []Value, newTarget *Object) *Object {
 	if p.ctor != nil {
 		return p.construct
@@ -999,7 +1014,7 @@ func (p *proxyObject) filterKeys(vals []Value, all, symbols bool) []Value {
 	return vals
 }
 
-func (p *proxyObject) stringKeys(all bool, _ []Value) []Value {
+func (p *proxyObject) stringKeys(all bool, _ []Value) []Value { // we can assume accum is empty
 	var keys []Value
 	if vals, ok := p.proxyOwnKeys(); ok {
 		keys = vals
@@ -1035,11 +1050,19 @@ func (p *proxyObject) className() string {
 	return classObject
 }
 
+func (p *proxyObject) typeOf() valueString {
+	if p.call == nil {
+		return stringObjectC
+	}
+
+	return stringFunction
+}
+
 func (p *proxyObject) exportType() reflect.Type {
 	return proxyType
 }
 
-func (p *proxyObject) export(*objectExportCtx) any {
+func (p *proxyObject) export(*objectExportCtx) interface{} {
 	return Proxy{
 		proxy: p,
 	}

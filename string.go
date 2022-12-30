@@ -1,11 +1,12 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"io"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 const (
@@ -241,7 +242,7 @@ func (s *stringObject) defineOwnPropertyIdx(idx valueInt, descr PropertyDescript
 }
 
 type stringPropIter struct {
-	str         valueString
+	str         valueString // separate, because obj can be the singleton
 	obj         *stringObject
 	idx, length int
 }
@@ -323,6 +324,6 @@ func devirtualizeString(s valueString) (asciiString, unicodeString) {
 	}
 }
 
-func unknownStringTypeErr(v Value) any {
+func unknownStringTypeErr(v Value) interface{} {
 	return newTypeError("Internal bug: unknown string type: %T", v)
 }

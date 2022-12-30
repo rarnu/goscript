@@ -1,10 +1,6 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/parser"
-	"github.com/rarnu/goscript/unistring"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"hash/maphash"
 	"io"
 	"math"
@@ -12,10 +8,19 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/rarnu/goscript/parser"
+	"github.com/rarnu/goscript/unistring"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
-// importedString 从 Go 中传入的字符中，只会在必要时，才进行 unicode 扫描并转换为 unicodeString
-// 仅是传入的字符串不会被扫描，从而节省 CPU 和内存的开销
+// Represents a string imported from Go. The idea is to delay the scanning for unicode characters and converting
+// to unicodeString until necessary. This way strings that are merely passed through never get scanned which
+// saves CPU and memory.
+// Currently, importedString is created in 2 cases: Runtime.ToValue() for strings longer than 16 bytes and as a result
+// of JSON.stringify() if it may contain unicode characters. More cases could be added in the future.
 type importedString struct {
 	s string
 	u unicodeString
@@ -119,7 +124,7 @@ func (i *importedString) StrictEquals(other Value) bool {
 	return false
 }
 
-func (i *importedString) Export() any {
+func (i *importedString) Export() interface{} {
 	return i.s
 }
 

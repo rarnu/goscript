@@ -1,15 +1,16 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/parser"
 	"github.com/rarnu/goscript/unistring"
-	"golang.org/x/text/collate"
-	"golang.org/x/text/language"
-	"golang.org/x/text/unicode/norm"
 	"math"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/rarnu/goscript/parser"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
+	"golang.org/x/text/unicode/norm"
 )
 
 func (r *Runtime) collator() *collate.Collator {
@@ -785,7 +786,7 @@ func (r *Runtime) stringproto_split(call FunctionCall) Value {
 		excess = true
 	}
 
-	// 此处需要处理非法的 UTF-16
+	// TODO handle invalid UTF-16
 	split := strings.SplitN(str, separator, splitLimit)
 
 	if excess && len(split) > limit {
@@ -874,21 +875,24 @@ func (r *Runtime) stringproto_toUpperCase(call FunctionCall) Value {
 func (r *Runtime) stringproto_trim(call FunctionCall) Value {
 	r.checkObjectCoercible(call.This)
 	s := call.This.toString()
-	// 此处需要处理非法的 UTF-16
+
+	// TODO handle invalid UTF-16
 	return newStringValue(strings.Trim(s.String(), parser.WhitespaceChars))
 }
 
 func (r *Runtime) stringproto_trimEnd(call FunctionCall) Value {
 	r.checkObjectCoercible(call.This)
 	s := call.This.toString()
-	// 此处需要处理非法的 UTF-16
+
+	// TODO handle invalid UTF-16
 	return newStringValue(strings.TrimRight(s.String(), parser.WhitespaceChars))
 }
 
 func (r *Runtime) stringproto_trimStart(call FunctionCall) Value {
 	r.checkObjectCoercible(call.This)
 	s := call.This.toString()
-	// 此处需要处理非法的 UTF-16
+
+	// TODO handle invalid UTF-16
 	return newStringValue(strings.TrimLeft(s.String(), parser.WhitespaceChars))
 }
 
@@ -975,6 +979,8 @@ func (r *Runtime) initString() {
 	o._putProp("valueOf", r.newNativeFunc(r.stringproto_valueOf, nil, "valueOf", nil, 0), true, false, true)
 
 	o._putSym(SymIterator, valueProp(r.newNativeFunc(r.stringproto_iterator, nil, "[Symbol.iterator]", nil, 0), true, false, true))
+
+	// Annex B
 	o._putProp("substr", r.newNativeFunc(r.stringproto_substr, nil, "substr", nil, 2), true, false, true)
 
 	r.global.String = r.newNativeFunc(r.builtin_String, r.builtin_newString, "String", r.global.StringPrototype, 1)

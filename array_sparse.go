@@ -2,12 +2,13 @@ package goscript
 
 import (
 	"fmt"
-	"github.com/rarnu/goscript/unistring"
 	"math"
 	"math/bits"
 	"reflect"
 	"sort"
 	"strconv"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type sparseArrayItem struct {
@@ -33,6 +34,7 @@ func (a *sparseArrayObject) _setLengthInt(l uint32, throw bool) bool {
 	ret := true
 	if l <= a.length {
 		if a.propValueCount > 0 {
+			// Slow path
 			for i := len(a.items) - 1; i >= 0; i-- {
 				item := a.items[i]
 				if item.idx <= l {
@@ -156,10 +158,13 @@ func (a *sparseArrayObject) _setOwnIdx(idx uint32, val Value, throw bool) bool {
 
 	if prop == nil {
 		if proto := a.prototype; proto != nil {
+			// we know it's foreign because prototype loops are not allowed
 			if res, ok := proto.self.setForeignIdx(valueInt(idx), val, a.val, throw); ok {
 				return res
 			}
 		}
+
+		// new property
 		if !a.extensible {
 			a.val.runtime.typeErrorResult(throw, "Cannot add property %d, object is not extensible", idx)
 			return false
@@ -303,6 +308,7 @@ func (a *sparseArrayObject) expand(idx uint32) bool {
 			idx = ii
 		}
 		if (bits.UintSize == 64 || idx < math.MaxInt32) && int(idx)>>3 < l {
+			//log.Println("Switching sparse->standard")
 			ar := &arrayObject{
 				baseObject:     a.baseObject,
 				length:         a.length,
@@ -411,11 +417,11 @@ func (a *sparseArrayObject) sortLen() int {
 	return 0
 }
 
-func (a *sparseArrayObject) export(ctx *objectExportCtx) any {
+func (a *sparseArrayObject) export(ctx *objectExportCtx) interface{} {
 	if v, exists := ctx.get(a.val); exists {
 		return v
 	}
-	arr := make([]any, a.length)
+	arr := make([]interface{}, a.length)
 	ctx.put(a.val, arr)
 	var prevIdx uint32
 	for _, item := range a.items {

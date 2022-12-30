@@ -20,7 +20,7 @@ func TestStringOOBProperties(t *testing.T) {
 func TestImportedString(t *testing.T) {
 	vm := New()
 
-	testUnaryOp := func(a, expr string, result any, t *testing.T) {
+	testUnaryOp := func(a, expr string, result interface{}, t *testing.T) {
 		v, err := vm.RunString("a => " + expr)
 		if err != nil {
 			t.Fatal(err)
@@ -41,7 +41,7 @@ func TestImportedString(t *testing.T) {
 		}
 	}
 
-	testBinaryOp := func(a, b, expr string, result any, t *testing.T) {
+	testBinaryOp := func(a, b, expr string, result interface{}, t *testing.T) {
 		v, err := vm.RunString("(a, b) => " + expr)
 		if err != nil {
 			t.Fatal(err)
@@ -66,6 +66,13 @@ func TestImportedString(t *testing.T) {
 
 	strs := []string{"shortAscii", "longlongAscii1234567890123456789", "short юникод", "long юникод 1234567890 юникод \U0001F600", "юникод", "Ascii", "long", "код"}
 	indexOfResults := [][]int{
+		/*
+			const strs = ["shortAscii", "longlongAscii1234567890123456789", "short юникод", "long юникод 1234567890 юникод \u{1F600}", "юникод", "Ascii", "long", "код"];
+
+			strs.forEach(a => {
+			    console.log("{", strs.map(b => a.indexOf(b)).join(", "), "},");
+			});
+		*/
 		{0, -1, -1, -1, -1, 5, -1, -1},
 		{-1, 0, -1, -1, -1, 8, 0, -1},
 		{-1, -1, 0, -1, 6, -1, -1, 9},
@@ -77,6 +84,11 @@ func TestImportedString(t *testing.T) {
 	}
 
 	lastIndexOfResults := [][]int{
+		/*
+			strs.forEach(a => {
+			    console.log("{", strs.map(b => a.lastIndexOf(b)).join(", "), "},");
+			});
+		*/
 		{0, -1, -1, -1, -1, 5, -1, -1},
 		{-1, 0, -1, -1, -1, 8, 4, -1},
 		{-1, -1, 0, -1, 6, -1, -1, 9},

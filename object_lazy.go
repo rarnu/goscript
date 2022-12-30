@@ -1,8 +1,9 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"reflect"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type lazyObject struct {
@@ -14,6 +15,12 @@ func (o *lazyObject) className() string {
 	obj := o.create(o.val)
 	o.val.self = obj
 	return obj.className()
+}
+
+func (o *lazyObject) typeOf() valueString {
+	obj := o.create(o.val)
+	o.val.self = obj
+	return obj.typeOf()
 }
 
 func (o *lazyObject) getIdx(p valueInt, receiver Value) Value {
@@ -186,6 +193,12 @@ func (o *lazyObject) assertCallable() (call func(FunctionCall) Value, ok bool) {
 	return obj.assertCallable()
 }
 
+func (o *lazyObject) vmCall(vm *vm, n int) {
+	obj := o.create(o.val)
+	o.val.self = obj
+	obj.vmCall(vm, n)
+}
+
 func (o *lazyObject) assertConstructor() func(args []Value, newTarget *Object) *Object {
 	obj := o.create(o.val)
 	o.val.self = obj
@@ -240,7 +253,7 @@ func (o *lazyObject) iterateKeys() iterNextFunc {
 	return obj.iterateKeys()
 }
 
-func (o *lazyObject) export(ctx *objectExportCtx) any {
+func (o *lazyObject) export(ctx *objectExportCtx) interface{} {
 	obj := o.create(o.val)
 	o.val.self = obj
 	return obj.export(ctx)

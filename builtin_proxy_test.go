@@ -43,7 +43,7 @@ func TestProxy_Object_native_proxy_getPrototypeOf(t *testing.T) {
 	runtime := New()
 
 	prototype := runtime.NewObject()
-	_ = runtime.Set("proto", prototype)
+	runtime.Set("proto", prototype)
 
 	target := runtime.NewObject()
 	proxy := runtime.NewProxy(target, &ProxyTrapConfig{
@@ -51,7 +51,7 @@ func TestProxy_Object_native_proxy_getPrototypeOf(t *testing.T) {
 			return prototype
 		},
 	})
-	_ = runtime.Set("proxy", proxy)
+	runtime.Set("proxy", proxy)
 
 	runtime.testScriptWithTestLib(SCRIPT, _undefined, t)
 }
@@ -125,14 +125,14 @@ func TestProxy_native_proxy_isExtensible(t *testing.T) {
 	runtime := New()
 
 	target := runtime.NewObject()
-	_ = runtime.Set("target", target)
+	runtime.Set("target", target)
 
 	proxy := runtime.NewProxy(target, &ProxyTrapConfig{
 		IsExtensible: func(target *Object) (success bool) {
 			return false
 		},
 	})
-	_ = runtime.Set("proxy", proxy)
+	runtime.Set("proxy", proxy)
 
 	val, err := runtime.RunString(SCRIPT)
 	if err != nil {
@@ -186,12 +186,12 @@ func TestProxy_native_proxy_preventExtensions(t *testing.T) {
 	runtime := New()
 
 	target := runtime.NewObject()
-	_ = target.Set("canEvolve", true)
-	_ = runtime.Set("target", target)
+	target.Set("canEvolve", true)
+	runtime.Set("target", target)
 
 	proxy := runtime.NewProxy(target, &ProxyTrapConfig{
 		PreventExtensions: func(target *Object) (success bool) {
-			_ = target.Set("canEvolve", false)
+			target.Set("canEvolve", false)
 			_, err := runtime.RunString("Object.preventExtensions(target)")
 			if err != nil {
 				panic(err)
@@ -199,7 +199,7 @@ func TestProxy_native_proxy_preventExtensions(t *testing.T) {
 			return true
 		},
 	})
-	_ = runtime.Set("proxy", proxy)
+	runtime.Set("proxy", proxy)
 
 	val, err := runtime.RunString(SCRIPT)
 	if err != nil {
@@ -366,9 +366,9 @@ func TestProxy_native_proxy_getOwnPropertyDescriptorIdx(t *testing.T) {
 		},
 	})
 
-	_ = vm.Set("proxy1", proxy1)
-	_ = vm.Set("proxy2", proxy2)
-	_ = vm.Set("proxy3", proxy3)
+	vm.Set("proxy1", proxy1)
+	vm.Set("proxy2", proxy2)
+	vm.Set("proxy3", proxy3)
 	vm.testScriptWithTestLibX(`
 	var desc;
 	for (var i = -1; i <= 1; i++) {
@@ -396,7 +396,7 @@ func TestProxy_native_proxy_getOwnPropertyDescriptorSym(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
 	sym := NewSymbol("42")
-	_ = vm.Set("sym", sym)
+	vm.Set("sym", sym)
 	proxy := vm.NewProxy(o, &ProxyTrapConfig{
 		GetOwnPropertyDescriptorSym: func(target *Object, s *Symbol) PropertyDescriptor {
 			if target != o {
@@ -413,7 +413,7 @@ func TestProxy_native_proxy_getOwnPropertyDescriptorSym(t *testing.T) {
 		},
 	})
 
-	_ = vm.Set("proxy", proxy)
+	vm.Set("proxy", proxy)
 	vm.testScriptWithTestLibX(`
 	var desc = Object.getOwnPropertyDescriptor(proxy, sym);
 	assert(deepEqual(desc, {value: "passed", writable: true, enumerable: false, configurable: true}));
@@ -425,10 +425,10 @@ func TestProxy_native_proxy_getOwnPropertyDescriptor_non_existing(t *testing.T) 
 	vm := New()
 	proxy := vm.NewProxy(vm.NewObject(), &ProxyTrapConfig{
 		GetOwnPropertyDescriptor: func(target *Object, prop string) (propertyDescriptor PropertyDescriptor) {
-			return
+			return // empty PropertyDescriptor
 		},
 	})
-	_ = vm.Set("proxy", proxy)
+	vm.Set("proxy", proxy)
 	res, err := vm.RunString(`Object.getOwnPropertyDescriptor(proxy, "foo") === undefined`)
 	if err != nil {
 		t.Fatal(err)
@@ -491,19 +491,19 @@ func TestProxy_native_proxy_defineProperty(t *testing.T) {
 
 	proxy := runtime.NewProxy(target, &ProxyTrapConfig{
 		DefineProperty: func(target *Object, key string, propertyDescriptor PropertyDescriptor) (success bool) {
-			_ = target.Set(key, propertyDescriptor.Value.String()+"-passed-str")
+			target.Set(key, propertyDescriptor.Value.String()+"-passed-str")
 			return true
 		},
 		DefinePropertyIdx: func(target *Object, key int, propertyDescriptor PropertyDescriptor) (success bool) {
-			_ = target.Set(strconv.Itoa(key), propertyDescriptor.Value.String()+"-passed-idx")
+			target.Set(strconv.Itoa(key), propertyDescriptor.Value.String()+"-passed-idx")
 			return true
 		},
 		DefinePropertySym: func(target *Object, key *Symbol, propertyDescriptor PropertyDescriptor) (success bool) {
-			_ = target.SetSymbol(key, propertyDescriptor.Value.String()+"-passed-sym")
+			target.SetSymbol(key, propertyDescriptor.Value.String()+"-passed-sym")
 			return true
 		},
 	})
-	_ = runtime.Set("proxy", proxy)
+	runtime.Set("proxy", proxy)
 
 	runtime.testScriptWithTestLib(SCRIPT, _undefined, t)
 }
@@ -705,7 +705,7 @@ func TestProxy_native_proxy_get(t *testing.T) {
 			return obj.GetSymbol(property)
 		},
 	})
-	_ = vm.Set("proxy", proxy)
+	vm.Set("proxy", proxy)
 	res, err := vm.RunString(`JSON.stringify(proxy)`)
 	if err != nil {
 		t.Fatal(err)
@@ -752,21 +752,21 @@ func TestProxy_native_proxy_set(t *testing.T) {
 	proxy := vm.NewProxy(obj, &ProxyTrapConfig{
 		Set: func(target *Object, property string, value Value, receiver Value) (success bool) {
 			if property == "str" {
-				_ = obj.Set(property, propValueStr)
+				obj.Set(property, propValueStr)
 				return true
 			}
 			panic(vm.NewTypeError("Setter for unexpected property: %q", property))
 		},
 		SetIdx: func(target *Object, property int, value Value, receiver Value) (success bool) {
 			if property == 0 {
-				_ = obj.Set(strconv.Itoa(property), propValueIdx)
+				obj.Set(strconv.Itoa(property), propValueIdx)
 				return true
 			}
 			panic(vm.NewTypeError("Setter for unexpected idx property: %d", property))
 		},
 		SetSym: func(target *Object, property *Symbol, value Value, receiver Value) (success bool) {
 			if property == sym {
-				_ = obj.SetSymbol(property, propValueSym)
+				obj.SetSymbol(property, propValueSym)
 				return true
 			}
 			panic(vm.NewTypeError("Setter for unexpected sym property: %q", property.String()))
@@ -943,7 +943,7 @@ func TestProxy_native_delete(t *testing.T) {
 	if !symCalled {
 		t.Fatal("sym")
 	}
-	_ = vm.Set("proxy", proxy)
+	vm.Set("proxy", proxy)
 	_, err = vm.RunString(`
 	if (delete proxy.strNeg) {
 		throw new Error("strNeg");
@@ -1154,7 +1154,7 @@ func TestProxy_Object_native_proxy_ownKeys(t *testing.T) {
 	vm := New()
 	proxy := vm.NewProxy(vm.NewObject(), &ProxyTrapConfig{
 		OwnKeys: func(target *Object) (object *Object) {
-			keys := make([]any, 0, len(headers))
+			keys := make([]interface{}, 0, len(headers))
 			for k := range headers {
 				keys = append(keys, k)
 			}
@@ -1172,7 +1172,7 @@ func TestProxy_Object_native_proxy_ownKeys(t *testing.T) {
 			return PropertyDescriptor{}
 		},
 	})
-	_ = vm.Set("headers", proxy)
+	vm.Set("headers", proxy)
 	v, err := vm.RunString(`
 		var keys = Object.keys(headers);
 		keys.length === 1 && keys[0] === "k0";
@@ -1242,6 +1242,7 @@ func TestProxyExport(t *testing.T) {
 }
 
 func TestProxy_proxy_createTargetNotCallable(t *testing.T) {
+	// from https://github.com/tc39/test262/blob/main/test/built-ins/Proxy/create-target-is-not-callable.js
 	const SCRIPT = `
 	var p = new Proxy({}, {});
 

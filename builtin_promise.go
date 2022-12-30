@@ -38,16 +38,20 @@ type promiseCapability struct {
 }
 
 type promiseReaction struct {
-	capability *promiseCapability
-	typ        promiseReactionType
-	handler    *jobCallback
+	capability  *promiseCapability
+	typ         promiseReactionType
+	handler     *jobCallback
+	asyncRunner *asyncRunner
 }
 
 var typePromise = reflect.TypeOf((*Promise)(nil))
 
-// Promise 是一个围绕 ECMAScript Promise 的 Go 封装器。对它调用 Runtime.ToValue() 会返回基础对象。在一个 Promise 对象上调用 Export() 会返回一个 Promise
-// 使用 Runtime.NewPromise() 来创建。在一个零对象或 nil 上调用 Runtime.ToValue() 会返回空值
-// Promise 的实例不是协程安全的，参考 Runtime.NewPromise()
+// Promise is a Go wrapper around ECMAScript Promise. Calling Runtime.ToValue() on it
+// returns the underlying Object. Calling Export() on a Promise Object returns a Promise.
+//
+// Use Runtime.NewPromise() to create one. Calling Runtime.ToValue() on a zero object or nil returns null Value.
+//
+// WARNING: Instances of Promise are not goroutine-safe. See Runtime.NewPromise() for more details.
 type Promise struct {
 	baseObject
 	state            PromiseState
@@ -140,8 +144,26 @@ func (p *Promise) exportType() reflect.Type {
 	return typePromise
 }
 
-func (p *Promise) export(*objectExportCtx) any {
+func (p *Promise) export(*objectExportCtx) interface{} {
 	return p
+}
+
+func (p *Promise) addReactions(fulfillReaction *promiseReaction, rejectReaction *promiseReaction) {
+	r := p.val.runtime
+	switch p.state {
+	case PromiseStatePending:
+		p.fulfillReactions = append(p.fulfillReactions, fulfillReaction)
+		p.rejectReactions = append(p.rejectReactions, rejectReaction)
+	case PromiseStateFulfilled:
+		r.enqueuePromiseJob(r.newPromiseReactionJob(fulfillReaction, p.result))
+	default:
+		reason := p.result
+		if !p.handled {
+			r.trackPromiseRejection(p, PromiseRejectionHandle)
+		}
+		r.enqueuePromiseJob(r.newPromiseReactionJob(rejectReaction, reason))
+	}
+	p.handled = true
 }
 
 func (r *Runtime) newPromiseResolveThenableJob(p *Promise, thenable Value, then *jobCallback) func() {
@@ -269,7 +291,7 @@ func (r *Runtime) newPromiseCapability(c *Object) *promiseCapability {
 		}, nil, "", nil, 2)
 		pcap.promise = r.toConstructor(c)([]Value{executor}, c)
 		pcap.resolveObj = r.toObject(resolve)
-		r.toCallable(pcap.resolveObj)
+		r.toCallable(pcap.resolveObj) // make sure it's callable
 		pcap.rejectObj = r.toObject(reject)
 		r.toCallable(pcap.rejectObj)
 	}
@@ -294,20 +316,7 @@ func (r *Runtime) performPromiseThen(p *Promise, onFulfilled, onRejected Value, 
 		typ:        promiseReactionReject,
 		handler:    onRejectedJobCallback,
 	}
-	switch p.state {
-	case PromiseStatePending:
-		p.fulfillReactions = append(p.fulfillReactions, fulfillReaction)
-		p.rejectReactions = append(p.rejectReactions, rejectReaction)
-	case PromiseStateFulfilled:
-		r.enqueuePromiseJob(r.newPromiseReactionJob(fulfillReaction, p.result))
-	default:
-		reason := p.result
-		if !p.handled {
-			r.trackPromiseRejection(p, PromiseRejectionHandle)
-		}
-		r.enqueuePromiseJob(r.newPromiseReactionJob(rejectReaction, reason))
-	}
-	p.handled = true
+	p.addReactions(fulfillReaction, rejectReaction)
 	if resultCapability == nil {
 		return _undefined
 	}
@@ -561,41 +570,52 @@ func (r *Runtime) initPromise() {
 	r.addToGlobal("Promise", r.global.Promise)
 }
 
-func (r *Runtime) wrapPromiseReaction(fObj *Object) func(any) {
+func (r *Runtime) wrapPromiseReaction(fObj *Object) func(interface{}) {
 	f, _ := AssertFunction(fObj)
-	return func(x any) {
+	return func(x interface{}) {
 		_, _ = f(nil, r.ToValue(x))
 	}
 }
 
-// NewPromise 创建并返回一个 Promise 和对其进行解析的函数
-// 警告：返回的值不是协程安全的，不能在 vm 运行时并行调用
-// 为了使用这个方法，你需要一个事件循环，例如 nodejs 包内的
+// NewPromise creates and returns a Promise and resolving functions for it.
+//
+// WARNING: The returned values are not goroutine-safe and must not be called in parallel with VM running.
+// In order to make use of this method you need an event loop such as the one in goja_nodejs (https://github.com/dop251/goja_nodejs)
+// where it can be used like this:
 //
 //	loop := NewEventLoop()
 //	loop.Start()
 //	defer loop.Stop()
-//	loop.RunOnLoop(func(vm *Runtime) {
-//		p, resolve, _ := vm.NewPromise()
-//		vm.Set("p", p)
+//	loop.RunOnLoop(func(vm *goja.Runtime) {
+//	    p, resolve, _ := vm.NewPromise()
+//	    vm.Set("p", p)
 //	    go func() {
-//	  		time.Sleep(500 * time.Millisecond)   // 或执行任何其他阻塞性操作
-//			loop.RunOnLoop(func(*Runtime) { // resolve() 必须在循环中调用，不能在这里调用
-//				resolve(result)
-//			})
-//		}()
-//	 }
-func (r *Runtime) NewPromise() (promise *Promise, resolve func(result any), reject func(reason any)) {
+//	        time.Sleep(500 * time.Millisecond)   // or perform any other blocking operation
+//	        loop.RunOnLoop(func(*goja.Runtime) { // resolve() must be called on the loop, cannot call it here
+//	            resolve(result)
+//	        })
+//	    }()
+//	}
+func (r *Runtime) NewPromise() (promise *Promise, resolve func(result interface{}), reject func(reason interface{})) {
 	p := r.newPromise(r.global.PromisePrototype)
 	resolveF, rejectF := p.createResolvingFunctions()
 	return p, r.wrapPromiseReaction(resolveF), r.wrapPromiseReaction(rejectF)
 }
 
-// SetPromiseRejectionTracker 注册了一个函数，该函数将在两种情况下被调用：
-// 1.当一个 Promise 在没有任何处理程序的情况下被拒绝时（操作参数设置为 PromiseRejectionReject）
-// 2.当一个处理程序第一次被添加到被拒绝的 Promise 时（操作参数设置为 PromiseRejectionHandle）
-// 设置一个跟踪器会替换任何现有的跟踪器。将其设置为 nil 则禁用该功能
-// 参考 https://tc39.es/ecma262/#sec-host-promise-rejection-tracker
+// SetPromiseRejectionTracker registers a function that will be called in two scenarios: when a promise is rejected
+// without any handlers (with operation argument set to PromiseRejectionReject), and when a handler is added to a
+// rejected promise for the first time (with operation argument set to PromiseRejectionHandle).
+//
+// Setting a tracker replaces any existing one. Setting it to nil disables the functionality.
+//
+// See https://tc39.es/ecma262/#sec-host-promise-rejection-tracker for more details.
 func (r *Runtime) SetPromiseRejectionTracker(tracker PromiseRejectionTracker) {
 	r.promiseRejectionTracker = tracker
+}
+
+// SetAsyncContextTracker registers a handler that allows to track async execution contexts. See AsyncContextTracker
+// documentation for more details. Setting it to nil disables the functionality.
+// This method (as Runtime in general) is not goroutine-safe.
+func (r *Runtime) SetAsyncContextTracker(tracker AsyncContextTracker) {
+	r.asyncContextTracker = tracker
 }

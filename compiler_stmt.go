@@ -46,6 +46,7 @@ func (c *compiler) compileStatement(v ast.Statement, needResult bool) {
 		c.compileEmptyStatement(needResult)
 	case *ast.FunctionDeclaration:
 		c.compileStandaloneFunctionDecl(v)
+		// note functions inside blocks are hoisted to the top of the block and are compiled using compileFunctions()
 	case *ast.ClassDeclaration:
 		c.compileClassDeclaration(v)
 	case *ast.WithStatement:
@@ -126,11 +127,10 @@ func (c *compiler) compileTryStatement(v *ast.TryStatement, needResult bool) {
 		c.emit(clearResult)
 	}
 	c.compileBlockStatement(v.Body, bodyNeedResult)
-	c.emit(halt)
-	lbl2 := len(c.p.code)
-	c.emit(nil)
 	var catchOffset int
 	if v.Catch != nil {
+		lbl2 := len(c.p.code) // jump over the catch block
+		c.emit(nil)
 		catchOffset = len(c.p.code) - lbl
 		if v.Catch.Parameter != nil {
 			c.block = &block{
@@ -141,6 +141,7 @@ func (c *compiler) compileTryStatement(v *ast.TryStatement, needResult bool) {
 			list := v.Catch.Body.List
 			funcs := c.extractFunctions(list)
 			if _, ok := v.Catch.Parameter.(ast.Pattern); ok {
+				// add anonymous binding for the catch parameter, note it must be first
 				c.scope.addBinding(int(v.Catch.Idx0()) - 1)
 			}
 			c.createBindings(v.Catch.Parameter, func(name unistring.String, offset int) {
@@ -181,23 +182,21 @@ func (c *compiler) compileTryStatement(v *ast.TryStatement, needResult bool) {
 			c.emit(pop)
 			c.compileBlockStatement(v.Catch.Body, bodyNeedResult)
 		}
-		c.emit(halt)
+		c.p.code[lbl2] = jump(len(c.p.code) - lbl2)
 	}
 	var finallyOffset int
 	if v.Finally != nil {
-		lbl1 := len(c.p.code)
-		c.emit(nil)
-		finallyOffset = len(c.p.code) - lbl
+		c.emit(enterFinally{})
+		finallyOffset = len(c.p.code) - lbl // finallyOffset should not include enterFinally
 		if bodyNeedResult && finallyBreaking != nil && lp == -1 {
 			c.emit(clearResult)
 		}
 		c.compileBlockStatement(v.Finally, false)
-		c.emit(halt, retFinally)
-
-		c.p.code[lbl1] = jump(len(c.p.code) - lbl1)
+		c.emit(leaveFinally{})
+	} else {
+		c.emit(leaveTry{})
 	}
 	c.p.code[lbl] = try{catchOffset: int32(catchOffset), finallyOffset: int32(finallyOffset)}
-	c.p.code[lbl2] = jump(len(c.p.code) - lbl2)
 	c.leaveBlock()
 }
 
@@ -277,7 +276,7 @@ func (c *compiler) compileLabeledForStatement(v *ast.ForStatement, needResult bo
 	}
 
 	if needResult {
-		c.emit(clearResult)
+		c.emit(clearResult) // initial result
 	}
 
 	if enterIterBlock != nil {
@@ -437,6 +436,8 @@ func (c *compiler) compileLabeledForInOfStatement(into ast.ForInto, source ast.E
 			}
 		}
 		if used {
+			// We need the stack untouched because it contains the source.
+			// This is not the most optimal way, but it's an edge case, hopefully quite rare.
 			for _, b := range s.bindings {
 				b.moveToStash()
 			}
@@ -592,7 +593,7 @@ func (c *compiler) findBreakBlock(label *ast.Identifier, isBreak bool) (res *blo
 			res = found
 		}
 	} else {
-		// 如果是 braak，查找最近的循环或 switch
+		// find the nearest loop or switch (if break)
 	L:
 		for b := c.block; b != nil; b = b.outer {
 			if bb := b.breaking; bb != nil {
@@ -620,11 +621,14 @@ func (c *compiler) emitBlockExitCode(label *ast.Identifier, idx file.Idx, isBrea
 		c.throwSyntaxError(int(idx)-1, "Could not find block")
 		panic("unreachable")
 	}
+	contForLoop := !isBreak && block.typ == blockLoop
 L:
 	for b := c.block; b != block; b = b.outer {
 		switch b.typ {
 		case blockIterScope:
-			if !isBreak && b.outer == block {
+			// blockIterScope in 'for' loops is shared across iterations, so
+			// continue should not pop it.
+			if contForLoop && b.outer == block {
 				break L
 			}
 			fallthrough
@@ -632,7 +636,7 @@ L:
 			b.breaks = append(b.breaks, len(c.p.code))
 			c.emit(nil)
 		case blockTry:
-			c.emit(halt)
+			c.emit(leaveTry{})
 		case blockWith:
 			c.emit(leaveWith)
 		case blockLoopEnum:
@@ -656,7 +660,7 @@ func (c *compiler) compileContinue(label *ast.Identifier, idx file.Idx) {
 
 func (c *compiler) compileIfBody(s ast.Statement, needResult bool) {
 	if !c.scope.strict {
-		if s, ok := s.(*ast.FunctionDeclaration); ok {
+		if s, ok := s.(*ast.FunctionDeclaration); ok && !s.Function.Async {
 			c.compileFunction(s)
 			if needResult {
 				c.emit(clearResult)
@@ -735,7 +739,7 @@ func (c *compiler) compileReturnStatement(v *ast.ReturnStatement) {
 	for b := c.block; b != nil; b = b.outer {
 		switch b.typ {
 		case blockTry:
-			c.emit(halt)
+			c.emit(leaveTry{})
 		case blockLoopEnum:
 			c.emit(enumPopClose)
 		}
@@ -1041,6 +1045,7 @@ func (c *compiler) compileSwitchStatement(v *ast.SwitchStatement, needResult boo
 		}
 		enter = &enterBlock{}
 		c.emit(enter)
+		// create anonymous variable for the discriminant
 		bindings := c.scope.bindings
 		var bb []*binding
 		if cap(bindings) == len(bindings) {

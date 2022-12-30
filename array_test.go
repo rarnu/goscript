@@ -22,7 +22,7 @@ func TestArrayExportProps(t *testing.T) {
 		t.Fatal(err)
 	}
 	actual := arr.Export()
-	expected := []any{true}
+	expected := []interface{}{true}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("Expected: %#v, actual: %#v", expected, actual)
 	}
@@ -122,7 +122,7 @@ func BenchmarkArrayPut(b *testing.B) {
 
 func BenchmarkArraySetEmpty(b *testing.B) {
 	r := New()
-	_ = r.Get("Array").(*Object).Get("prototype").String()
+	_ = r.Get("Array").(*Object).Get("prototype").String() // materialise Array.prototype
 	a := r.NewArray(0, 0)
 	values := a.self.(*arrayObject).values
 	b.ResetTimer()

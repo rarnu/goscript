@@ -1,6 +1,11 @@
-// Package unistring 是一个混合ASCII/UTF16字符串的实现
-// 对于 ASCII 字符串，底层处理相当于普通的 Go 字符串
-// 对于 unicode 字符串，底层处理为 []uint16 ，符合 UTF16 的编码规则，第0个元素为0xFEFF
+// Package unistring contains an implementation of a hybrid ASCII/UTF-16 string.
+// For ASCII strings the underlying representation is equivalent to a normal Go string.
+// For unicode strings the underlying representation is UTF-16 as []uint16 with 0th element set to 0xFEFF.
+// unicode.String allows representing malformed UTF-16 values (e.g. stand-alone parts of surrogate pairs)
+// which cannot be represented in UTF-8.
+// At the same time it is possible to use unicode.String as property keys just as efficiently as simple strings,
+// (the leading 0xFEFF ensures there is no clash with ASCII string), and it is possible to convert it
+// to valueString without extra allocations.
 package unistring
 
 import (
@@ -10,29 +15,30 @@ import (
 	"unsafe"
 )
 
-const BOM = 0xFEFF
+const (
+	BOM = 0xFEFF
+)
 
 type String string
 
-// Scan 检查一个字符串是否包含 unicode 字符，如果有，则转换为使用 FromUtf16 创建的字符串，否则返回 nil
+// Scan checks if the string contains any unicode characters. If it does, converts to an array suitable for creating
+// a String using FromUtf16, otherwise returns nil.
 func Scan(s string) []uint16 {
-	hasUnicodeChar := false
 	utf16Size := 0
 	for ; utf16Size < len(s); utf16Size++ {
 		if s[utf16Size] >= utf8.RuneSelf {
-			hasUnicodeChar = true
-			break
+			goto unicode
 		}
 	}
-	if !hasUnicodeChar {
-		return nil
-	}
+	return nil
+unicode:
 	for _, chr := range s[utf16Size:] {
 		utf16Size++
 		if chr > 0xFFFF {
 			utf16Size++
 		}
 	}
+
 	buf := make([]uint16, utf16Size+1)
 	buf[0] = BOM
 	c := 1
@@ -47,6 +53,7 @@ func Scan(s string) []uint16 {
 		}
 		c++
 	}
+
 	return buf
 }
 
@@ -94,6 +101,7 @@ func FromUtf16(b []uint16) String {
 	hdr := (*reflect.StringHeader)(unsafe.Pointer(&str))
 	hdr.Data = uintptr(unsafe.Pointer(&b[0]))
 	hdr.Len = len(b) * 2
+
 	return String(str)
 }
 
@@ -101,6 +109,7 @@ func (s String) String() string {
 	if b := s.AsUtf16(); b != nil {
 		return string(utf16.Decode(b[1:]))
 	}
+
 	return string(s)
 }
 
@@ -108,15 +117,21 @@ func (s String) AsUtf16() []uint16 {
 	if len(s) < 4 || len(s)&1 != 0 {
 		return nil
 	}
+
 	var a []uint16
 	raw := string(s)
+
 	sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&a))
 	sliceHeader.Data = (*reflect.StringHeader)(unsafe.Pointer(&raw)).Data
+
 	l := len(raw) / 2
+
 	sliceHeader.Len = l
 	sliceHeader.Cap = l
+
 	if a[0] == BOM {
 		return a
 	}
+
 	return nil
 }

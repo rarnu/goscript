@@ -1,5 +1,22 @@
 package goscript
 
+// This is a slightly modified version of the standard Go parser to make it more compatible with ECMAScript 5.1
+// Changes:
+// - 6-digit extended years are supported in place of long year (2006) in the form of +123456
+// - Timezone formats tolerate colons, e.g. -0700 will parse -07:00
+// - Short week day will also parse long week day
+// - Short month ("Jan") will also parse long month ("January")
+// - Long day ("02") will also parse short day ("2").
+// - Timezone in brackets, "(MST)", will match any string in brackets (e.g. "(GMT Standard Time)")
+// - If offset is not set and timezone name is unknown, an error is returned
+// - If offset and timezone name are both set the offset takes precedence and the resulting Location will be FixedZone("", offset)
+
+// Original copyright message:
+
+// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 import (
 	"errors"
 	"time"
@@ -29,31 +46,34 @@ const (
 	stdpm                                          // "pm"
 	stdTZ                    = iota                // "MST"
 	stdBracketTZ                                   // "(MST)"
-	stdISO8601TZ                                   // "Z0700"  // UTC 下打印 Z
+	stdISO8601TZ                                   // "Z0700"  // prints Z for UTC
 	stdISO8601SecondsTZ                            // "Z070000"
 	stdISO8601ShortTZ                              // "Z07"
-	stdISO8601ColonTZ                              // "Z07:00" // UTC 下打印 Z
+	stdISO8601ColonTZ                              // "Z07:00" // prints Z for UTC
 	stdISO8601ColonSecondsTZ                       // "Z07:00:00"
-	stdNumTZ                                       // "-0700"  // 总是数字
+	stdNumTZ                                       // "-0700"  // always numeric
 	stdNumSecondsTz                                // "-070000"
-	stdNumShortTZ                                  // "-07"    // 总是数字
-	stdNumColonTZ                                  // "-07:00" // 总是数字
+	stdNumShortTZ                                  // "-07"    // always numeric
+	stdNumColonTZ                                  // "-07:00" // always numeric
 	stdNumColonSecondsTZ                           // "-07:00:00"
-	stdFracSecond0                                 // ".0", ".00", ... , 包括尾数 0
-	stdFracSecond9                                 // ".9", ".99", ..., 省略尾数 0
-	stdNeedDate              = 1 << 8              // 需要 月，日，年
-	stdNeedClock             = 2 << 8              // 需要 时，分，秒
-	stdArgShift              = 16                  // 高位的额外参数，高于低位 stdArgShift 偏移
-	stdMask                  = 1<<stdArgShift - 1
+	stdFracSecond0                                 // ".0", ".00", ... , trailing zeros included
+	stdFracSecond9                                 // ".9", ".99", ..., trailing zeros omitted
+
+	stdNeedDate  = 1 << 8             // need month, day, year
+	stdNeedClock = 2 << 8             // need hour, minute, second
+	stdArgShift  = 16                 // extra argument in high bits, above low stdArgShift
+	stdMask      = 1<<stdArgShift - 1 // mask out argument
 )
 
-var errBad = errors.New("bad value for field") // 占位符，不会传递给用户
+var errBad = errors.New("bad value for field") // placeholder not passed to user
 
 func parseDate(layout, value string, defaultLocation *time.Location) (time.Time, error) {
 	alayout, avalue := layout, value
-	rangeErrString := "" // 如果值超出范围，则设置此信息
-	amSet := false
-	pmSet := false
+	rangeErrString := "" // set if a value is out of range
+	amSet := false       // do we need to subtract 12 from the hour for midnight?
+	pmSet := false       // do we need to add 12 to the hour?
+
+	// Time being constructed.
 	var (
 		year       int
 		month      int = 1 // January
@@ -67,6 +87,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 		zoneName   string
 	)
 
+	// Each iteration processes one std value.
 	for {
 		var err error
 		prefix, std, suffix := nextStdChunk(layout)
@@ -91,14 +112,13 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 			}
 			p, value = value[0:2], value[2:]
 			year, err = atoi(p)
-			if year >= 69 {
-				// 在某些时区，Unix 时间始于 1969.12.31
+			if year >= 69 { // Unix time starts Dec 31 1969 in some time zones
 				year += 1900
 			} else {
 				year += 2000
 			}
 		case stdLongYear:
-			if len(value) >= 7 && (value[0] == '-' || value[0] == '+') {
+			if len(value) >= 7 && (value[0] == '-' || value[0] == '+') { // extended year
 				neg := value[0] == '-'
 				p, value = value[1:7], value[7:]
 				year, err = atoi(p)
@@ -129,6 +149,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 				rangeErrString = "month"
 			}
 		case stdWeekDay:
+			// Ignore weekday except for error checking.
 			_, value, err = lookup(longDayNames, value)
 			if err != nil {
 				_, value, err = lookup(shortDayNames, value)
@@ -141,6 +162,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 			}
 			day, value, err = getnum(value, false)
 			if day < 0 {
+				// Note that we allow any one- or two-digit day here.
 				rangeErrString = "day"
 			}
 		case stdHour:
@@ -164,14 +186,16 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 				rangeErrString = "second"
 				break
 			}
-			// 特殊情况，当时间内有小数秒，但是格式中没有小数秒
+			// Special case: do we have a fractional second but no
+			// fractional second in the format?
 			if len(value) >= 2 && value[0] == '.' && isDigit(value, 1) {
 				_, std, _ = nextStdChunk(layout)
 				std &= stdMask
 				if std == stdFracSecond0 || std == stdFracSecond9 {
+					// Fractional second in the layout; proceed normally
 					break
 				}
-				// 在布局中没有小数秒，但在输入中有
+				// No fractional second in the layout but we have one in the input.
 				n := 2
 				for ; n < len(value) && isDigit(value, n); n++ {
 				}
@@ -207,7 +231,9 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 				err = errBad
 			}
 		case stdISO8601TZ, stdISO8601ColonTZ, stdISO8601SecondsTZ, stdISO8601ShortTZ, stdISO8601ColonSecondsTZ, stdNumTZ, stdNumShortTZ, stdNumColonTZ, stdNumSecondsTz, stdNumColonSecondsTZ:
-			if (std == stdISO8601TZ || std == stdISO8601ShortTZ || std == stdISO8601ColonTZ || std == stdISO8601SecondsTZ || std == stdISO8601ColonSecondsTZ) && len(value) >= 1 && value[0] == 'Z' {
+			if (std == stdISO8601TZ || std == stdISO8601ShortTZ || std == stdISO8601ColonTZ ||
+				std == stdISO8601SecondsTZ || std == stdISO8601ColonSecondsTZ) && len(value) >= 1 && value[0] == 'Z' {
+
 				value = value[1:]
 				z = time.UTC
 				break
@@ -264,7 +290,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 			if err == nil {
 				ss, err = atoi(seconds)
 			}
-			zoneOffset = (hr*60+mm)*60 + ss // 偏移量的单位：秒
+			zoneOffset = (hr*60+mm)*60 + ss // offset is in seconds
 			switch sign[0] {
 			case '+':
 			case '-':
@@ -273,6 +299,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 				err = errBad
 			}
 		case stdTZ:
+			// Does it look like a time zone?
 			if len(value) >= 3 && value[0:3] == "UTC" {
 				z = time.UTC
 				value = value[3:]
@@ -302,7 +329,8 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 			}
 
 		case stdFracSecond0:
-			// stdFracSecond0 要求包含布局中指定的精确数字
+			// stdFracSecond0 requires the exact number of digits as specified in
+			// the layout.
 			ndigit := 1 + (std >> stdArgShift)
 			if len(value) < ndigit {
 				err = errBad
@@ -313,9 +341,11 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 
 		case stdFracSecond9:
 			if len(value) < 2 || value[0] != '.' || value[1] < '0' || '9' < value[1] {
-				// 省略小数秒
+				// Fractional second omitted.
 				break
 			}
+			// Take any number of digits, even more than asked for,
+			// because it is what the stdSecond case would do.
 			i := 0
 			for i < 9 && i+1 < len(value) && '0' <= value[i+1] && value[i+1] <= '9' {
 				i++
@@ -336,7 +366,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 		hour = 0
 	}
 
-	// 验证每月的日期
+	// Validate the day of the month.
 	if day < 1 || day > daysIn(time.Month(month), year) {
 		return time.Time{}, &time.ParseError{Layout: alayout, Value: avalue, ValueElem: value, Message: ": day out of range"}
 	}
@@ -362,7 +392,7 @@ func parseDate(layout, value string, defaultLocation *time.Location) (time.Time,
 	return time.Date(year, time.Month(month), day, hour, min, sec, nsec, z), nil
 }
 
-var errLeadingInt = errors.New("time: bad [0-9]*")
+var errLeadingInt = errors.New("time: bad [0-9]*") // never printed
 
 func signedLeadingInt(s string) (x int64, rem string, err error) {
 	neg := false
@@ -381,7 +411,7 @@ func signedLeadingInt(s string) (x int64, rem string, err error) {
 	return
 }
 
-// leadingInt 消费 s 前导的 [0-9]*
+// leadingInt consumes the leading [0-9]* from s.
 func leadingInt(s string) (x int64, rem string, err error) {
 	i := 0
 	for ; i < len(s); i++ {
@@ -390,17 +420,20 @@ func leadingInt(s string) (x int64, rem string, err error) {
 			break
 		}
 		if x > (1<<63-1)/10 {
+			// overflow
 			return 0, "", errLeadingInt
 		}
 		x = x*10 + int64(c) - '0'
 		if x < 0 {
+			// overflow
 			return 0, "", errLeadingInt
 		}
 	}
 	return x, s[i:], nil
 }
 
-// nextStdChunk 找到布局中第一个出现的 std 字符串，并返回之前的文本、std 字符串和之后的文本
+// nextStdChunk finds the first occurrence of a std string in
+// layout and returns the text before, the std string, and the text after.
 func nextStdChunk(layout string) (prefix string, std int, suffix string) {
 	for i := 0; i < len(layout); i++ {
 		switch c := int(layout[i]); c {
@@ -413,6 +446,7 @@ func nextStdChunk(layout string) (prefix string, std int, suffix string) {
 					return layout[0:i], stdMonth, layout[i+3:]
 				}
 			}
+
 		case 'M': // Monday, Mon, MST
 			if len(layout) >= i+3 {
 				if layout[i:i+3] == "Mon" {
@@ -427,41 +461,52 @@ func nextStdChunk(layout string) (prefix string, std int, suffix string) {
 					return layout[0:i], stdTZ, layout[i+3:]
 				}
 			}
+
 		case '0': // 01, 02, 03, 04, 05, 06
 			if len(layout) >= i+2 && '1' <= layout[i+1] && layout[i+1] <= '6' {
 				return layout[0:i], std0x[layout[i+1]-'1'], layout[i+2:]
 			}
+
 		case '1': // 15, 1
 			if len(layout) >= i+2 && layout[i+1] == '5' {
 				return layout[0:i], stdHour, layout[i+2:]
 			}
 			return layout[0:i], stdNumMonth, layout[i+1:]
+
 		case '2': // 2006, 2
 			if len(layout) >= i+4 && layout[i:i+4] == "2006" {
 				return layout[0:i], stdLongYear, layout[i+4:]
 			}
 			return layout[0:i], stdDay, layout[i+1:]
+
 		case '_': // _2, _2006
 			if len(layout) >= i+2 && layout[i+1] == '2' {
+				//_2006 is really a literal _, followed by stdLongYear
 				if len(layout) >= i+5 && layout[i+1:i+5] == "2006" {
 					return layout[0 : i+1], stdLongYear, layout[i+5:]
 				}
 				return layout[0:i], stdUnderDay, layout[i+2:]
 			}
+
 		case '3':
 			return layout[0:i], stdHour12, layout[i+1:]
+
 		case '4':
 			return layout[0:i], stdMinute, layout[i+1:]
+
 		case '5':
 			return layout[0:i], stdSecond, layout[i+1:]
+
 		case 'P': // PM
 			if len(layout) >= i+2 && layout[i+1] == 'M' {
 				return layout[0:i], stdPM, layout[i+2:]
 			}
+
 		case 'p': // pm
 			if len(layout) >= i+2 && layout[i+1] == 'm' {
 				return layout[0:i], stdpm, layout[i+2:]
 			}
+
 		case '-': // -070000, -07:00:00, -0700, -07:00, -07
 			if len(layout) >= i+7 && layout[i:i+7] == "-070000" {
 				return layout[0:i], stdNumSecondsTz, layout[i+7:]
@@ -478,6 +523,7 @@ func nextStdChunk(layout string) (prefix string, std int, suffix string) {
 			if len(layout) >= i+3 && layout[i:i+3] == "-07" {
 				return layout[0:i], stdNumShortTZ, layout[i+3:]
 			}
+
 		case 'Z': // Z070000, Z07:00:00, Z0700, Z07:00,
 			if len(layout) >= i+7 && layout[i:i+7] == "Z070000" {
 				return layout[0:i], stdISO8601SecondsTZ, layout[i+7:]
@@ -495,14 +541,14 @@ func nextStdChunk(layout string) (prefix string, std int, suffix string) {
 				return layout[0:i], stdISO8601ShortTZ, layout[i+3:]
 			}
 
-		case '.': // .000 或 .999 - 小数秒的重复数字
+		case '.': // .000 or .999 - repeated digits for fractional seconds.
 			if i+1 < len(layout) && (layout[i+1] == '0' || layout[i+1] == '9') {
 				ch := layout[i+1]
 				j := i + 1
 				for j < len(layout) && layout[j] == ch {
 					j++
 				}
-				// 数字字符串必须在此结束，只有第二位小数之前是全部数字
+				// String of digits must end here - only fractional second is all digits.
 				if !isDigit(layout, j) {
 					std := stdFracSecond0
 					if layout[i+1] == '9' {
@@ -571,7 +617,7 @@ var longMonthNames = []string{
 	"December",
 }
 
-// isDigit 判断 s[i] 是否在范围内并且是小数位
+// isDigit reports whether s[i] is in range and is a decimal digit.
 func isDigit(s string, i int) bool {
 	if len(s) <= i {
 		return false
@@ -580,7 +626,9 @@ func isDigit(s string, i int) bool {
 	return '0' <= c && c <= '9'
 }
 
-// getnum 将 s[0:1] 或 s[0:2]（固定为后者）解析为十进制整数，并返回该整数和字符串的剩余部分
+// getnum parses s[0:1] or s[0:2] (fixed forces the latter)
+// as a decimal integer and returns the integer and the
+// remainder of the string.
 func getnum(s string, fixed bool) (int, string, error) {
 	if !isDigit(s, 0) {
 		return 0, s, errBad
@@ -601,7 +649,8 @@ func cutspace(s string) string {
 	return s
 }
 
-// 从值中删除给定的前缀，和多余的空格
+// skip removes the given prefix from value,
+// treating runs of space characters as equivalent.
 func skip(value, prefix string) (string, error) {
 	for len(prefix) > 0 {
 		if prefix[0] == ' ' {
@@ -621,8 +670,10 @@ func skip(value, prefix string) (string, error) {
 	return value, nil
 }
 
+// Never printed, just needs to be non-nil for return by atoi.
 var atoiError = errors.New("time: invalid number")
 
+// Duplicates functionality in strconv, but avoids dependency.
 func atoi(s string) (x int, err error) {
 	q, rem, err := signedLeadingInt(s)
 	x = int(q)
@@ -632,13 +683,14 @@ func atoi(s string) (x int, err error) {
 	return x, nil
 }
 
-// match 判断 s1 和 s2 是否匹配（无视大小写）
-// 假设 s1 和 s2 的长度相等
+// match reports whether s1 and s2 match ignoring case.
+// It is assumed s1 and s2 are the same length.
 func match(s1, s2 string) bool {
 	for i := 0; i < len(s1); i++ {
 		c1 := s1[i]
 		c2 := s2[i]
 		if c1 != c2 {
+			// Switch to lower-case; 'a'-'A' is known to be a single bit.
 			c1 |= 'a' - 'A'
 			c2 |= 'a' - 'A'
 			if c1 != c2 || c1 < 'a' || c1 > 'z' {
@@ -658,7 +710,9 @@ func lookup(tab []string, val string) (int, string, error) {
 	return -1, val, errBad
 }
 
-// daysBefore 计算非闰年中 m 月开始前的天数
+// daysBefore[m] counts the number of days in a non-leap year
+// before month m begins. There is an entry for m=12, counting
+// the number of days before January of next year (365).
 var daysBefore = [...]int32{
 	0,
 	31,
@@ -686,21 +740,35 @@ func daysIn(m time.Month, year int) int {
 	return int(daysBefore[m] - daysBefore[m-1])
 }
 
+// parseTimeZone parses a time zone string and returns its length. Time zones
+// are human-generated and unpredictable. We can't do precise error checking.
+// On the other hand, for a correct parse there must be a time zone at the
+// beginning of the string, so it's almost always true that there's one
+// there. We look at the beginning of the string for a run of upper-case letters.
+// If there are more than 5, it's an error.
+// If there are 4 or 5 and the last is a T, it's a time zone.
+// If there are 3, it's a time zone.
+// Otherwise, other than special cases, it's not a time zone.
+// GMT is special because it can have an hour offset.
 func parseTimeZone(value string) (length int, ok bool) {
 	if len(value) < 3 {
 		return 0, false
 	}
+	// Special case 1: ChST and MeST are the only zones with a lower-case letter.
 	if len(value) >= 4 && (value[:4] == "ChST" || value[:4] == "MeST") {
 		return 4, true
 	}
+	// Special case 2: GMT may have an hour offset; treat it specially.
 	if value[:3] == "GMT" {
 		length = parseGMT(value)
 		return length, true
 	}
+	// Special Case 3: Some time zones are not named, but have +/-00 format
 	if value[0] == '+' || value[0] == '-' {
 		length = parseSignedOffset(value)
 		return length, true
 	}
+	// How many upper-case letters are there? Need at least three, at most five.
 	var nUpper int
 	for nUpper = 0; nUpper < 6; nUpper++ {
 		if nUpper >= len(value) {
@@ -713,11 +781,12 @@ func parseTimeZone(value string) (length int, ok bool) {
 	switch nUpper {
 	case 0, 1, 2, 6:
 		return 0, false
-	case 5:
+	case 5: // Must end in T to match.
 		if value[4] == 'T' {
 			return 5, true
 		}
 	case 4:
+		// Must end in T, except one special case.
 		if value[3] == 'T' || value[:4] == "WITA" {
 			return 4, true
 		}
@@ -727,6 +796,9 @@ func parseTimeZone(value string) (length int, ok bool) {
 	return 0, false
 }
 
+// parseGMT parses a GMT time zone. The input string is known to start "GMT".
+// The function checks whether that is followed by a sign and a number in the
+// range -14 through 12 excluding zero.
 func parseGMT(value string) int {
 	value = value[3:]
 	if len(value) == 0 {
@@ -736,6 +808,9 @@ func parseGMT(value string) int {
 	return 3 + parseSignedOffset(value)
 }
 
+// parseSignedOffset parses a signed timezone offset (e.g. "+03" or "-04").
+// The function checks for a signed number in the range -14 through +12 excluding zero.
+// Returns length of the found offset string or 0 otherwise
 func parseSignedOffset(value string) int {
 	sign := value[0]
 	if sign != '-' && sign != '+' {
@@ -766,6 +841,9 @@ func parseNanoseconds(value string, nbytes int) (ns int, rangeErrString string, 
 		rangeErrString = "fractional second"
 		return
 	}
+	// We need nanoseconds, which means scaling by the number
+	// of missing digits in the format, maximum length 10. If it's
+	// longer than 10, we won't scale.
 	scaleDigits := 10 - nbytes
 	for i := 0; i < scaleDigits; i++ {
 		ns *= 10
@@ -773,8 +851,11 @@ func parseNanoseconds(value string, nbytes int) (ns int, rangeErrString string, 
 	return
 }
 
+// std0x records the std values for "01", "02", ..., "06".
 var std0x = [...]int{stdZeroMonth, stdZeroDay, stdZeroHour12, stdZeroMinute, stdZeroSecond, stdYear}
 
+// startsWithLowerCase reports whether the string has a lower-case letter at the beginning.
+// Its purpose is to prevent matching strings like "Month" when looking for "Mon".
 func startsWithLowerCase(str string) bool {
 	if len(str) == 0 {
 		return false

@@ -72,6 +72,8 @@ func (m *orderedMap) remove(key Value) bool {
 	if entry != nil {
 		entry.key = nil
 		entry.value = nil
+
+		// remove from the doubly-linked list
 		if entry.iterPrev != nil {
 			entry.iterPrev.iterNext = entry.iterNext
 		} else {
@@ -82,6 +84,8 @@ func (m *orderedMap) remove(key Value) bool {
 		} else {
 			m.iterLast = entry.iterPrev
 		}
+
+		// remove from the hashTable
 		if hPrev == nil {
 			if entry.hNext == nil {
 				delete(m.hashTable, h)
@@ -106,10 +110,12 @@ func (m *orderedMap) has(key Value) bool {
 
 func (iter *orderedMapIter) next() *mapEntry {
 	if iter.m == nil {
+		// closed iterator
 		return nil
 	}
 
 	cur := iter.cur
+	// if the current item was deleted, track back to find the latest that wasn't
 	for cur != nil && cur.key == nil {
 		cur = cur.iterPrev
 	}

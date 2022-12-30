@@ -17,6 +17,7 @@ type regexp2MatchCache struct {
 	posMap []int
 }
 
+// Not goroutine-safe. Use regexp2Wrapper.clone()
 type regexp2Wrapper struct {
 	rx    *regexp2.Regexp
 	cache *regexp2MatchCache
@@ -56,11 +57,14 @@ func (rd *arrayRuneReader) ReadRune() (r rune, size int, err error) {
 	return
 }
 
+// Not goroutine-safe. Use regexpPattern.clone()
 type regexpPattern struct {
-	src                                            string
+	src string
+
 	global, ignoreCase, multiline, sticky, unicode bool
-	regexpWrapper                                  *regexpWrapper
-	regexp2Wrapper                                 *regexp2Wrapper
+
+	regexpWrapper  *regexpWrapper
+	regexp2Wrapper *regexp2Wrapper
 }
 
 func compileRegexp2(src string, multiline, ignoreCase bool) (*regexp2Wrapper, error) {
@@ -73,7 +77,7 @@ func compileRegexp2(src string, multiline, ignoreCase bool) (*regexp2Wrapper, er
 	}
 	regexp2Pattern, err1 := regexp2.Compile(src, opts)
 	if err1 != nil {
-		return nil, fmt.Errorf("invalid regular expression (regexp2): %s (%v)", src, err1)
+		return nil, fmt.Errorf("Invalid regular expression (regexp2): %s (%v)", src, err1)
 	}
 
 	return &regexp2Wrapper{rx: regexp2Pattern}, nil
@@ -85,6 +89,7 @@ func (p *regexpPattern) createRegexp2() {
 	}
 	rx, err := compileRegexp2(p.src, p.multiline, p.ignoreCase)
 	if err != nil {
+		// At this point the regexp should have been successfully converted to re2, if it fails now, it's a bug.
 		panic(err)
 	}
 	p.regexp2Wrapper = rx
@@ -101,6 +106,7 @@ func buildUTF8PosMap(s unicodeString) (positionMap, string) {
 			break
 		}
 		if err != nil {
+			// the string contains invalid UTF-16, bailing out
 			return nil, ""
 		}
 		utf8Size, _ := sb.WriteRune(r)
@@ -116,6 +122,9 @@ func (p *regexpPattern) findSubmatchIndex(s valueString, start int) []int {
 		return p.regexp2Wrapper.findSubmatchIndex(s, start, p.unicode, p.global || p.sticky)
 	}
 	if start != 0 {
+		// Unfortunately Go's regexp library does not allow starting from an arbitrary position.
+		// If we just drop the first _start_ characters of the string the assertions (^, $, \b and \B) will not
+		// work correctly.
 		p.createRegexp2()
 		return p.regexp2Wrapper.findSubmatchIndex(s, start, p.unicode, p.global || p.sticky)
 	}
@@ -138,7 +147,10 @@ func (p *regexpPattern) findAllSubmatchIndex(s valueString, start int, limit int
 			}
 			return [][]int{result}
 		}
+		// Unfortunately Go's regexp library lacks FindAllReaderSubmatchIndex(), so we have to use a UTF-8 string as an
+		// input.
 		if p.unicode {
+			// Try to convert s to UTF-8. If it does not contain any invalid UTF-16 we can do the matching in UTF-8.
 			pm, str := buildUTF8PosMap(u)
 			if pm != nil {
 				res := p.regexpWrapper.findAllSubmatchIndex(str, limit, sticky)
@@ -156,6 +168,7 @@ func (p *regexpPattern) findAllSubmatchIndex(s valueString, start int, limit int
 	return p.regexp2Wrapper.findAllSubmatchIndex(s, start, limit, sticky, p.unicode)
 }
 
+// clone creates a copy of the regexpPattern which can be used concurrently.
 func (p *regexpPattern) clone() *regexpPattern {
 	ret := &regexpPattern{
 		src:        p.src,
@@ -176,8 +189,9 @@ func (p *regexpPattern) clone() *regexpPattern {
 
 type regexpObject struct {
 	baseObject
-	pattern  *regexpPattern
-	source   valueString
+	pattern *regexpPattern
+	source  valueString
+
 	standard bool
 }
 
@@ -253,6 +267,7 @@ func (r *regexp2Wrapper) findUnicodeCached(s valueString, start int, doCache boo
 		cache = nil
 	}
 	if splitPair {
+		// temporarily set the rune at mappedStart to the second code point of the pair
 		_, second := utf16.EncodeRune(runes[mappedStart])
 		savedRune, runes[mappedStart] = runes[mappedStart], second
 	}
@@ -354,6 +369,7 @@ func buildPosMap(rd io.RuneReader, l, start int) (posMap []int, runes []rune, ma
 				startFound = true
 			}
 			if curPos > start {
+				// start position splits a surrogate pair
 				mappedStart = len(runes) - 1
 				splitPair = true
 				startFound = true

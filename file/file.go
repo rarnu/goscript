@@ -1,56 +1,50 @@
-// Package file 供 AST 使用的文件操作抽象
+// Package file encapsulates the file abstractions used by the ast & parser.
 package file
 
 import (
 	"fmt"
-	"github.com/go-sourcemap/sourcemap"
 	"net/url"
 	"path"
 	"sort"
+	"strings"
 	"sync"
+
+	"github.com/go-sourcemap/sourcemap"
 )
 
-// Idx 是在一个在文件集合内的。指出源码位置的一个紧凑型编码
-// 它可以被转换为 Position，以获得一个更为全面的数据表达
+// Idx is a compact encoding of a source position within a file set.
+// It can be converted into a Position for a more convenient, but much
+// larger, representation.
 type Idx int
 
-// Position 用于描述一个任意的源码位置，包括文件名，行和列
+// Position describes an arbitrary source position
+// including the filename, line, and column location.
 type Position struct {
-	Filename string // 产生了错误的文件名（有错误发生的情况才填充）
-	Line     int    // 行号，以1为起始
-	Column   int    // 列号，以1为起始
+	Filename string // The filename where the error occurred, if any
+	Line     int    // The line number, starting at 1
+	Column   int    // The column number, starting at 1 (The character count)
+
 }
 
-// FileSet 代表了一组源文件
-type FileSet struct {
-	files []*File
-	last  *File
+// A Position is valid if the line number is > 0.
+
+func (self *Position) isValid() bool {
+	return self.Line > 0
 }
 
-// File 代表了一个具体的源文件
-type File struct {
-	mu                sync.Mutex
-	name              string
-	src               string
-	base              int // 1 或更大的值
-	sourceMap         *sourcemap.Consumer
-	lineOffsets       []int
-	lastScannedOffset int
-}
-
-// isValid 判断 Position 是否合法
-func (p *Position) isValid() bool {
-	// 当 Line > 0 时，宣告 Position 合法
-	return p.Line > 0
-}
-
-func (p *Position) String() string {
-	str := p.Filename
-	if p.isValid() {
+// String returns a string in one of several forms:
+//
+//	file:line:column    A valid position with filename
+//	line:column         A valid position without filename
+//	file                An invalid position with filename
+//	-                   An invalid position without filename
+func (self Position) String() string {
+	str := self.Filename
+	if self.isValid() {
 		if str != "" {
 			str += ":"
 		}
-		str += fmt.Sprintf("%d:%d", p.Line, p.Column)
+		str += fmt.Sprintf("%d:%d", self.Line, self.Column)
 	}
 	if str == "" {
 		str = "-"
@@ -58,29 +52,38 @@ func (p *Position) String() string {
 	return str
 }
 
-// AddFile 将指定文件名和源文件路径的一个文件，添加到文件集合中
-func (fs *FileSet) AddFile(filename, src string) int {
-	base := fs.nextBase()
+// FileSet
+
+// A FileSet represents a set of source files.
+type FileSet struct {
+	files []*File
+	last  *File
+}
+
+// AddFile adds a new file with the given filename and src.
+//
+// This an internal method, but exported for cross-package use.
+func (self *FileSet) AddFile(filename, src string) int {
+	base := self.nextBase()
 	file := &File{
 		name: filename,
 		src:  src,
 		base: base,
 	}
-	fs.files = append(fs.files, file)
-	fs.last = file
+	self.files = append(self.files, file)
+	self.last = file
 	return base
 }
 
-func (fs *FileSet) nextBase() int {
-	if fs.last == nil {
+func (self *FileSet) nextBase() int {
+	if self.last == nil {
 		return 1
 	}
-	return fs.last.base + len(fs.last.src) + 1
+	return self.last.base + len(self.last.src) + 1
 }
 
-// File 根据下标获取具体的文件
-func (fs *FileSet) File(idx Idx) *File {
-	for _, file := range fs.files {
+func (self *FileSet) File(idx Idx) *File {
+	for _, file := range self.files {
 		if idx <= Idx(file.base+len(file.src)) {
 			return file
 		}
@@ -88,9 +91,9 @@ func (fs *FileSet) File(idx Idx) *File {
 	return nil
 }
 
-// Position 将在文件集合中的 Idx 转换为 Position
-func (fs *FileSet) Position(idx Idx) Position {
-	for _, file := range fs.files {
+// Position converts an Idx in the FileSet into a Position.
+func (self *FileSet) Position(idx Idx) Position {
+	for _, file := range self.files {
 		if idx <= Idx(file.base+len(file.src)) {
 			return file.Position(int(idx) - file.base)
 		}
@@ -98,7 +101,16 @@ func (fs *FileSet) Position(idx Idx) Position {
 	return Position{}
 }
 
-// NewFile 新建一个文件
+type File struct {
+	mu                sync.Mutex
+	name              string
+	src               string
+	base              int // This will always be 1 or greater
+	sourceMap         *sourcemap.Consumer
+	lineOffsets       []int
+	lastScannedOffset int
+}
+
 func NewFile(filename, src string, base int) *File {
 	return &File{
 		name: filename,
@@ -107,65 +119,77 @@ func NewFile(filename, src string, base int) *File {
 	}
 }
 
-func (f *File) Name() string {
-	return f.name
+func (fl *File) Name() string {
+	return fl.name
 }
 
-func (f *File) Source() string {
-	return f.src
+func (fl *File) Source() string {
+	return fl.src
 }
 
-func (f *File) Base() int {
-	return f.base
+func (fl *File) Base() int {
+	return fl.base
 }
 
-func (f *File) SetSourceMap(m *sourcemap.Consumer) {
-	f.sourceMap = m
+func (fl *File) SetSourceMap(m *sourcemap.Consumer) {
+	fl.sourceMap = m
 }
 
-// Position 根据文件指针的偏移量，计算出该指针所在的具体位置
-func (f *File) Position(offset int) Position {
+func (fl *File) Position(offset int) Position {
 	var line int
 	var lineOffsets []int
-	f.mu.Lock()
-	if offset > f.lastScannedOffset {
-		line = f.scanTo(offset)
-		lineOffsets = f.lineOffsets
-		f.mu.Unlock()
+	fl.mu.Lock()
+	if offset > fl.lastScannedOffset {
+		line = fl.scanTo(offset)
+		lineOffsets = fl.lineOffsets
+		fl.mu.Unlock()
 	} else {
-		lineOffsets = f.lineOffsets
-		f.mu.Unlock()
+		lineOffsets = fl.lineOffsets
+		fl.mu.Unlock()
 		line = sort.Search(len(lineOffsets), func(x int) bool { return lineOffsets[x] > offset }) - 1
 	}
+
 	var lineStart int
 	if line >= 0 {
 		lineStart = lineOffsets[line]
 	}
+
 	row := line + 2
 	col := offset - lineStart + 1
-	if f.sourceMap != nil {
-		if source, _, row, col, ok := f.sourceMap.Source(row, col); ok {
+
+	if fl.sourceMap != nil {
+		if source, _, row, col, ok := fl.sourceMap.Source(row, col); ok {
+			sourceUrlStr := source
+			sourceURL := ResolveSourcemapURL(fl.Name(), source)
+			if sourceURL != nil {
+				sourceUrlStr = sourceURL.String()
+			}
+
 			return Position{
-				Filename: ResolveSourcemapURL(f.Name(), source).String(),
+				Filename: sourceUrlStr,
 				Line:     row,
 				Column:   col,
 			}
 		}
 	}
+
 	return Position{
-		Filename: f.name,
+		Filename: fl.name,
 		Line:     row,
 		Column:   col,
 	}
 }
 
 func ResolveSourcemapURL(basename, source string) *url.URL {
-	smURL, err := url.Parse(source)
+	// if the url is absolute(has scheme) there is nothing to do
+	smURL, err := url.Parse(strings.TrimSpace(source))
 	if err == nil && !smURL.IsAbs() {
-		baseURL, err1 := url.Parse(basename)
+		baseURL, err1 := url.Parse(strings.TrimSpace(basename))
 		if err1 == nil && path.IsAbs(baseURL.Path) {
 			smURL = baseURL.ResolveReference(smURL)
 		} else {
+			// pathological case where both are not absolute paths and using Resolve
+			// as above will produce an absolute one
 			smURL, _ = url.Parse(path.Join(path.Dir(basename), smURL.Path))
 		}
 	}
@@ -189,20 +213,22 @@ func findNextLineStart(s string) int {
 	return -1
 }
 
-func (f *File) scanTo(offset int) int {
-	o := f.lastScannedOffset
+func (fl *File) scanTo(offset int) int {
+	o := fl.lastScannedOffset
 	for o < offset {
-		p := findNextLineStart(f.src[o:])
+		p := findNextLineStart(fl.src[o:])
 		if p == -1 {
-			f.lastScannedOffset = len(f.src)
-			return len(f.lineOffsets) - 1
+			fl.lastScannedOffset = len(fl.src)
+			return len(fl.lineOffsets) - 1
 		}
 		o = o + p
-		f.lineOffsets = append(f.lineOffsets, o)
+		fl.lineOffsets = append(fl.lineOffsets, o)
 	}
-	f.lastScannedOffset = o
+	fl.lastScannedOffset = o
+
 	if o == offset {
-		return len(f.lineOffsets) - 1
+		return len(fl.lineOffsets) - 1
 	}
-	return len(f.lineOffsets) - 2
+
+	return len(fl.lineOffsets) - 2
 }

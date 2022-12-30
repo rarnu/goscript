@@ -1,18 +1,24 @@
 package ftoa
 
 import (
-	"github.com/rarnu/goscript/ftoa/fast"
 	"math"
 	"strconv"
+
+	"github.com/rarnu/goscript/ftoa/internal/fast"
 )
 
 type FToStrMode int
 
 const (
+	// Either fixed or exponential format; round-trip
 	ModeStandard FToStrMode = iota
+	// Always exponential format; round-trip
 	ModeStandardExponential
+	// Round to <precision> digits after the decimal point; exponential if number is large
 	ModeFixed
+	// Always exponential format; <precision> significant digits
 	ModeExponential
+	// Either fixed or exponential format; <precision> significant digits
 	ModePrecision
 )
 
@@ -54,7 +60,7 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 	var ok bool
 	startPos := len(buffer)
 
-	if d != 0 {
+	if d != 0 { // also matches -0
 		if d < 0 {
 			buffer = append(buffer, '-')
 			d = -d
@@ -74,7 +80,7 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 		buffer, decPt = ftoa(d, dtoaModes[mode], mode >= ModeFixed, precision, buffer)
 	}
 	exponentialNotation := false
-	minNDigits := 0
+	minNDigits := 0 /* Minimum number of significand digits required by mode and precision */
 	nDigits := len(buffer) - startPos
 
 	switch mode {
@@ -91,11 +97,13 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 			minNDigits = decPt
 		}
 	case ModeExponential:
+		//                    JS_ASSERT(precision > 0);
 		minNDigits = precision
 		fallthrough
 	case ModeStandardExponential:
 		exponentialNotation = true
 	case ModePrecision:
+		//                    JS_ASSERT(precision > 0);
 		minNDigits = precision
 		if decPt < -5 || decPt > precision {
 			exponentialNotation = true
@@ -108,6 +116,7 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 	}
 
 	if exponentialNotation {
+		/* Insert a decimal point if more than one significand digit */
 		if nDigits != 1 {
 			buffer = insert(buffer, startPos+1, '.')
 		}
@@ -117,9 +126,13 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 		}
 		buffer = strconv.AppendInt(buffer, int64(decPt-1), 10)
 	} else if decPt != nDigits {
+		/* Some kind of a fraction in fixed notation */
+		//                JS_ASSERT(decPt <= nDigits);
 		if decPt > 0 {
+			/* dd...dd . dd...dd */
 			buffer = insert(buffer, startPos+decPt, '.')
 		} else {
+			/* 0 . 00...00dd...dd */
 			buffer = expand(buffer, 2-decPt)
 			copy(buffer[startPos+2-decPt:], buffer[startPos:])
 			buffer[startPos] = '0'
@@ -129,5 +142,6 @@ func FToStr(d float64, mode FToStrMode, precision int, buffer []byte) []byte {
 			}
 		}
 	}
+
 	return buffer
 }

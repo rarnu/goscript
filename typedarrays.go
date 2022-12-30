@@ -1,11 +1,12 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"math"
 	"reflect"
 	"strconv"
 	"unsafe"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type byteOrder bool
@@ -16,7 +17,8 @@ const (
 )
 
 var (
-	nativeEndian    byteOrder
+	nativeEndian byteOrder
+
 	arrayBufferType = reflect.TypeOf(ArrayBuffer{})
 )
 
@@ -28,9 +30,9 @@ type arrayBufferObject struct {
 	data     []byte
 }
 
-// ArrayBuffer 是 ECMAScript ArrayBuffer 的 Go 封装器。对其调用 Runtime.ToValue() 将返回底层 ArrayBuffer
-// 在 ECMAScript ArrayBuffer 上调用 Export() 会返回一个封装器
-// 使用 Runtime.NewArrayBuffer([]byte) 来创建它
+// ArrayBuffer is a Go wrapper around ECMAScript ArrayBuffer. Calling Runtime.ToValue() on it
+// returns the underlying ArrayBuffer. Calling Export() on an ECMAScript ArrayBuffer returns a wrapper.
+// Use Runtime.NewArrayBuffer([]byte) to create one.
 type ArrayBuffer struct {
 	buf *arrayBufferObject
 }
@@ -82,15 +84,17 @@ func (a ArrayBuffer) toValue(r *Runtime) Value {
 	return v
 }
 
-// Bytes 返回这个 ArrayBuffer 的 []byte 内容
-// 对于已脱离的 ArrayBuffers 返回 nil
+// Bytes returns the underlying []byte for this ArrayBuffer.
+// For detached ArrayBuffers returns nil.
 func (a ArrayBuffer) Bytes() []byte {
 	return a.buf.data
 }
 
-// Detach 脱离ArrayBuffer，在这之后，底层的 []byte 将变得没有参考价值，任何试图使用这个 ArrayBuffer 的行为都会导致 TypeError
-// 如果已经脱离，返回false，否则返回true
-// 注意，这个方法只能从拥有 Runtime 协程中调用，不能被多个协程同时调用
+// Detach the ArrayBuffer. After this, the underlying []byte becomes unreferenced and any attempt
+// to use this ArrayBuffer results in a TypeError.
+// Returns false if it was already detached, true otherwise.
+// Note, this method may only be called from the goroutine that 'owns' the Runtime, it may not
+// be called concurrently.
 func (a ArrayBuffer) Detach() bool {
 	if a.buf.detached {
 		return false
@@ -99,6 +103,7 @@ func (a ArrayBuffer) Detach() bool {
 	return true
 }
 
+// Detached returns true if the ArrayBuffer is detached.
 func (a ArrayBuffer) Detached() bool {
 	return a.buf.detached
 }
@@ -384,7 +389,7 @@ func typedFloatLess(x, y float64) bool {
 	} else if xNan {
 		return false
 	}
-	if x == 0 && y == 0 {
+	if x == 0 && y == 0 { // handle neg zero
 		return math.Signbit(x)
 	}
 	return x < y
@@ -527,7 +532,7 @@ func (a *typedArrayObject) setOwnStr(p unistring.String, v Value, throw bool) bo
 		return true
 	}
 	if idx == 0 {
-		v.ToNumber()
+		v.ToNumber() // make sure it throws
 		return true
 	}
 	return a.baseObject.setOwnStr(p, v, throw)
@@ -630,6 +635,7 @@ func (a *typedArrayObject) deleteIdx(idx valueInt, throw bool) bool {
 		a.val.runtime.typeErrorResult(throw, "Cannot delete property '%d' of %s", idx, a.val.String())
 		return false
 	}
+
 	return true
 }
 
@@ -874,7 +880,7 @@ func (o *arrayBufferObject) exportType() reflect.Type {
 	return arrayBufferType
 }
 
-func (o *arrayBufferObject) export(*objectExportCtx) any {
+func (o *arrayBufferObject) export(*objectExportCtx) interface{} {
 	return ArrayBuffer{
 		buf: o,
 	}

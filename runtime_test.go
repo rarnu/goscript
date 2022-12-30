@@ -3,7 +3,6 @@ package goscript
 import (
 	"errors"
 	"fmt"
-	"github.com/rarnu/goscript/parser"
 	"math"
 	"reflect"
 	"runtime"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rarnu/goscript/parser"
 )
 
 func TestGlobalObjectProto(t *testing.T) {
@@ -202,13 +203,14 @@ func ExampleRuntime_Set_lexical() {
 		panic(err)
 	}
 	fmt.Print(r.Get("x"), r.GlobalObject().Get("x"))
-	// 输出: 1 <nil>
+	// Output: 1 <nil>
 }
 
 func TestRecursiveRun(t *testing.T) {
-	// 确保对 Run*() 的递归调用能够正确地设置环境，并且不发生堆栈损坏
+	// Make sure that a recursive call to Run*() correctly sets the environment and no stash or stack
+	// corruptions occur.
 	vm := New()
-	_ = vm.Set("f", func() (Value, error) {
+	vm.Set("f", func() (Value, error) {
 		return vm.RunString("let x = 1; { let z = 100, z1 = 200, z2 = 300, z3 = 400; } x;")
 	})
 	res, err := vm.RunString(`
@@ -244,8 +246,8 @@ func TestObjectGetSet(t *testing.T) {
 	`
 	r := New()
 	o := r.NewObject()
-	_ = o.Set("test", 42)
-	_ = r.Set("input", o)
+	o.Set("test", 42)
+	r.Set("input", o)
 
 	v, err := r.RunString(SCRIPT)
 	if err != nil {
@@ -269,7 +271,7 @@ func TestThrowFromNativeFunc(t *testing.T) {
 	thrown;
 	`
 	r := New()
-	_ = r.Set("f", func(call FunctionCall) Value {
+	r.Set("f", func(call FunctionCall) Value {
 		panic(r.ToValue("testError"))
 	})
 
@@ -288,7 +290,7 @@ func TestSetGoFunc(t *testing.T) {
 	f(40, 2)
 	`
 	r := New()
-	_ = r.Set("f", func(a, b int) int {
+	r.Set("f", func(a, b int) int {
 		return a + b
 	})
 
@@ -304,7 +306,7 @@ func TestSetGoFunc(t *testing.T) {
 
 func TestSetFuncVariadic(t *testing.T) {
 	vm := New()
-	_ = vm.Set("f", func(s string, g ...Value) {
+	vm.Set("f", func(s string, g ...Value) {
 		something := g[0].ToObject(vm).Get(s).ToInteger()
 		if something != 5 {
 			t.Fatal()
@@ -320,7 +322,7 @@ func TestSetFuncVariadic(t *testing.T) {
 
 func TestSetFuncVariadicFuncArg(t *testing.T) {
 	vm := New()
-	_ = vm.Set("f", func(s string, g ...Value) {
+	vm.Set("f", func(s string, g ...Value) {
 		if f, ok := AssertFunction(g[0]); ok {
 			v, err := f(nil)
 			if err != nil {
@@ -502,7 +504,7 @@ func TestRuntime_ExportToNumbers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if f == f {
+		if f == f { // expecting NaN
 			t.Fatalf("f: %f", f)
 		}
 	})
@@ -513,7 +515,7 @@ func TestRuntime_ExportToNumbers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if f == f {
+		if f == f { // expecting NaN
 			t.Fatalf("f: %f", f)
 		}
 	})
@@ -841,8 +843,8 @@ func ExampleRuntime_ExportTo_func() {
 		panic(err)
 	}
 
-	fmt.Println(fn("40")) // 注意，函数中的 _this_ 值是 undefined
-	// 输出: 42
+	fmt.Println(fn("40")) // note, _this_ value in the function will be undefined.
+	// Output: 42
 }
 
 func ExampleRuntime_ExportTo_funcThrow() {
@@ -866,7 +868,7 @@ func ExampleRuntime_ExportTo_funcThrow() {
 	_, err = fn("")
 
 	fmt.Println(err)
-	// 输出: Error: testing at f (<eval>:3:9(3))
+	// Output: Error: testing at f (<eval>:3:9(3))
 }
 
 func ExampleRuntime_ExportTo_funcVariadic() {
@@ -881,13 +883,13 @@ func ExampleRuntime_ExportTo_funcVariadic() {
 		panic(err)
 	}
 
-	var fn func(args ...any) string
+	var fn func(args ...interface{}) string
 	err = vm.ExportTo(vm.Get("f"), &fn)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(fn("a", "b", 42))
-	// 输出: a,b,42
+	// Output: a,b,42
 }
 
 func TestRuntime_ExportToFuncFail(t *testing.T) {
@@ -987,7 +989,7 @@ func ExampleAssertFunction() {
 		panic(err)
 	}
 	fmt.Println(res)
-	// 输出: 42
+	// Output: 42
 }
 
 func TestGoFuncError(t *testing.T) {
@@ -1005,16 +1007,14 @@ func TestGoFuncError(t *testing.T) {
 	`
 
 	f := func() error {
-		return errors.New("test")
+		return errors.New("Test")
 	}
 
 	vm := New()
-	_ = vm.Set("f", f)
+	vm.Set("f", f)
 	_, err := vm.RunString(SCRIPT)
 	if err != nil {
-		if err.Error() != "Unexpected value: test at <eval>:9:4(29)" {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
 	}
 }
 
@@ -1031,26 +1031,26 @@ func TestToValueNil(t *testing.T) {
 		t.Fatalf("struct ptr: %v", v)
 	}
 
-	var m map[string]any
+	var m map[string]interface{}
 	if v := vm.ToValue(m); !IsNull(v) {
-		t.Fatalf("map[string]any: %v", v)
+		t.Fatalf("map[string]interface{}: %v", v)
 	}
 
-	var ar []any
-	if v := vm.ToValue(ar); !IsNull(v) {
-		t.Fatalf("[]any: %v", v)
+	var ar []interface{}
+	if v := vm.ToValue(ar); IsNull(v) {
+		t.Fatalf("[]interface{}: %v", v)
 	}
 
-	var arptr *[]any
+	var arptr *[]interface{}
 	if v := vm.ToValue(arptr); !IsNull(v) {
-		t.Fatalf("*[]any: %v", v)
+		t.Fatalf("*[]interface{}: %v", v)
 	}
 }
 
 func TestToValueFloat(t *testing.T) {
 	vm := New()
-	_ = vm.Set("f64", float64(123))
-	_ = vm.Set("f32", float32(321))
+	vm.Set("f64", float64(123))
+	vm.Set("f32", float32(321))
 
 	v, err := vm.RunString("f64 === 123 && f32 === 321")
 	if err != nil {
@@ -1063,12 +1063,12 @@ func TestToValueFloat(t *testing.T) {
 
 func TestToValueInterface(t *testing.T) {
 
-	f := func(i any) bool {
+	f := func(i interface{}) bool {
 		return i == t
 	}
 	vm := New()
-	_ = vm.Set("f", f)
-	_ = vm.Set("t", t)
+	vm.Set("f", f)
+	vm.Set("t", t)
 	v, err := vm.RunString(`f(t)`)
 	if err != nil {
 		t.Fatal(err)
@@ -1125,8 +1125,8 @@ func TestJSONNil(t *testing.T) {
 	`
 
 	vm := New()
-	var i any
-	_ = vm.Set("i", i)
+	var i interface{}
+	vm.Set("i", i)
 	ret, err := vm.RunString(SCRIPT)
 	if err != nil {
 		t.Fatal(err)
@@ -1139,7 +1139,7 @@ func TestJSONNil(t *testing.T) {
 
 type customJsonEncodable struct{}
 
-func (*customJsonEncodable) JsonEncodable() any {
+func (*customJsonEncodable) JsonEncodable() interface{} {
 	return "Test"
 }
 
@@ -1147,7 +1147,7 @@ func TestJsonEncodable(t *testing.T) {
 	var s customJsonEncodable
 
 	vm := New()
-	_ = vm.Set("s", &s)
+	vm.Set("s", &s)
 
 	ret, err := vm.RunString("JSON.stringify(s)")
 	if err != nil {
@@ -1228,7 +1228,7 @@ func TestNilCallArg(t *testing.T) {
 	`
 	vm := New()
 	prg := MustCompile("test.js", SCRIPT, false)
-	_, _ = vm.RunProgram(prg)
+	vm.RunProgram(prg)
 	if f, ok := AssertFunction(vm.Get("f")); ok {
 		v, err := f(nil, nil)
 		if err != nil {
@@ -1246,7 +1246,7 @@ func TestNullCallArg(t *testing.T) {
 	`
 	vm := New()
 	prg := MustCompile("test.js", SCRIPT, false)
-	_ = vm.Set("f", func(x *int) bool {
+	vm.Set("f", func(x *int) bool {
 		return x == nil
 	})
 
@@ -1291,7 +1291,7 @@ func TestReflectCallExtraArgs(t *testing.T) {
 	}
 
 	vm := New()
-	_ = vm.Set("f", f)
+	vm.Set("f", f)
 
 	prg := MustCompile("test.js", SCRIPT, false)
 
@@ -1320,7 +1320,7 @@ func TestReflectCallNotEnoughArgs(t *testing.T) {
 		return x + y, nil
 	}
 
-	_ = vm.Set("f", f)
+	vm.Set("f", f)
 
 	prg := MustCompile("test.js", SCRIPT, false)
 
@@ -1353,7 +1353,7 @@ func TestReflectCallVariadic(t *testing.T) {
 	`
 
 	vm := New()
-	_ = vm.Set("f", fmt.Sprintf)
+	vm.Set("f", fmt.Sprintf)
 
 	prg := MustCompile("test.js", SCRIPT, false)
 
@@ -1365,7 +1365,7 @@ func TestReflectCallVariadic(t *testing.T) {
 
 func TestReflectNullValueArgument(t *testing.T) {
 	rt := New()
-	_ = rt.Set("fn", func(v Value) {
+	rt.Set("fn", func(v Value) {
 		if v == nil {
 			t.Error("null becomes nil")
 		}
@@ -1373,12 +1373,13 @@ func TestReflectNullValueArgument(t *testing.T) {
 			t.Error("null is not null")
 		}
 	})
-	_, _ = rt.RunString(`fn(null);`)
+	rt.RunString(`fn(null);`)
 }
 
 type testNativeConstructHelper struct {
 	rt   *Runtime
 	base int64
+	// any other state
 }
 
 func (t *testNativeConstructHelper) calc(call FunctionCall) Value {
@@ -1397,15 +1398,14 @@ func TestNativeConstruct(t *testing.T) {
 		return rt.ToValue(42)
 	}
 
-	_ = rt.Set("F", func(call ConstructorCall) *Object {
-		// 构造函数的签名（相对于 "func(FunctionCall) Value "而言）
+	rt.Set("F", func(call ConstructorCall) *Object { // constructor signature (as opposed to 'func(FunctionCall) Value')
 		h := &testNativeConstructHelper{
 			rt:   rt,
 			base: call.Argument(0).ToInteger(),
 		}
-		_ = call.This.Set("method", method)
-		_ = call.This.Set("calc", h.calc)
-		return nil
+		call.This.Set("method", method)
+		call.This.Set("calc", h.calc)
+		return nil // or any other *Object which will be used instead of call.This
 	})
 
 	prg := MustCompile("test.js", SCRIPT, false)
@@ -1456,8 +1456,8 @@ func TestCreateObject(t *testing.T) {
 
 	inst := r.CreateObject(proto)
 
-	_ = r.Set("C", c)
-	_ = r.Set("inst", inst)
+	r.Set("C", c)
+	r.Set("inst", inst)
 
 	prg := MustCompile("test.js", SCRIPT, false)
 
@@ -1502,9 +1502,9 @@ func TestInterruptInWrappedFunction(t *testing.T) {
 
 func TestInterruptInWrappedFunction2(t *testing.T) {
 	rt := New()
-	// 这个测试会导致 panic，goscript 会恢复并出现循环
+	// this test panics as otherwise goja will recover and possibly loop
 	var called bool
-	_ = rt.Set("v", rt.ToValue(func() {
+	rt.Set("v", rt.ToValue(func() {
 		if called {
 			go func() {
 				panic("this should never get called twice")
@@ -1514,11 +1514,11 @@ func TestInterruptInWrappedFunction2(t *testing.T) {
 		rt.Interrupt("here is the error")
 	}))
 
-	_ = rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
+	rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
 		return a(nil)
 	}))
 
-	_ = rt.Set("k", rt.ToValue(func(e Value) {
+	rt.Set("k", rt.ToValue(func(e Value) {
 		go func() {
 			panic("this should never get called actually")
 		}()
@@ -1558,16 +1558,16 @@ func TestInterruptInWrappedFunction2(t *testing.T) {
 
 func TestInterruptInWrappedFunction2Recover(t *testing.T) {
 	rt := New()
-	// 这个测试会导致 panic，goscript 会恢复并出现循环
+	// this test panics as otherwise goja will recover and possibly loop
 	var vCalled int
-	_ = rt.Set("v", rt.ToValue(func() {
+	rt.Set("v", rt.ToValue(func() {
 		if vCalled == 0 {
 			rt.Interrupt("here is the error")
 		}
 		vCalled++
 	}))
 
-	_ = rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
+	rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
 		v, err := a(nil)
 		if err != nil {
 			intErr := new(InterruptedError)
@@ -1580,7 +1580,7 @@ func TestInterruptInWrappedFunction2Recover(t *testing.T) {
 	}))
 	var kCalled int
 
-	_ = rt.Set("k", rt.ToValue(func(e Value) {
+	rt.Set("k", rt.ToValue(func(e Value) {
 		kCalled++
 	}))
 	_, err := rt.RunString(`
@@ -1629,7 +1629,7 @@ func TestRunLoopPreempt(t *testing.T) {
 
 	go func() {
 		<-time.After(100 * time.Millisecond)
-		runtime.GC() // 如果 vm 循环没有任何抢占点就会被挂起
+		runtime.GC() // this hangs if the vm loop does not have any preemption points
 		vm.Interrupt(errors.New("hi"))
 	}()
 
@@ -1874,7 +1874,7 @@ func TestObjSet(t *testing.T) {
 func TestToValueNilValue(t *testing.T) {
 	r := New()
 	var a Value
-	_ = r.Set("a", a)
+	r.Set("a", a)
 	ret, err := r.RunString(`
 	""+a;
 	`)
@@ -1893,7 +1893,7 @@ func TestDateConversion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = vm.Set("d", val)
+	vm.Set("d", val)
 	res, err := vm.RunString(`+d`)
 	if err != nil {
 		t.Fatal(err)
@@ -1901,7 +1901,7 @@ func TestDateConversion(t *testing.T) {
 	if exp := res.Export(); exp != now.UnixNano()/1e6 {
 		t.Fatalf("Value does not match: %v", exp)
 	}
-	_ = vm.Set("goval", now)
+	vm.Set("goval", now)
 	res, err = vm.RunString(`+(new Date(goval.UnixNano()/1e6))`)
 	if err != nil {
 		t.Fatal(err)
@@ -1924,10 +1924,10 @@ func TestNativeCtorNewTarget(t *testing.T) {
 
 func TestNativeCtorNonNewCall(t *testing.T) {
 	vm := New()
-	_ = vm.Set(`Animal`, func(call ConstructorCall) *Object {
+	vm.Set(`Animal`, func(call ConstructorCall) *Object {
 		obj := call.This
-		_ = obj.Set(`name`, call.Argument(0).String())
-		_ = obj.Set(`eat`, func(call FunctionCall) Value {
+		obj.Set(`name`, call.Argument(0).String())
+		obj.Set(`eat`, func(call FunctionCall) Value {
 			self := call.This.(*Object)
 			return vm.ToValue(fmt.Sprintf("%s eat", self.Get(`name`)))
 		})
@@ -1965,7 +1965,7 @@ func ExampleNewSymbol() {
 	sym1 := NewSymbol("66")
 	sym2 := NewSymbol("66")
 	fmt.Printf("%s %s %v", sym1, sym2, sym1.Equals(sym2))
-	// 输出: 66 66 false
+	// Output: 66 66 false
 }
 
 func ExampleObject_SetSymbol() {
@@ -1975,13 +1975,13 @@ func ExampleObject_SetSymbol() {
 	}
 
 	vm := New()
-	vm.SetFieldNameMapper(UncapFieldNameMapper())
+	vm.SetFieldNameMapper(UncapFieldNameMapper()) // to use IterResult
 
 	o := vm.NewObject()
-	_ = o.SetSymbol(SymIterator, func() *Object {
+	o.SetSymbol(SymIterator, func() *Object {
 		count := 0
 		iter := vm.NewObject()
-		_ = iter.Set("next", func() IterResult {
+		iter.Set("next", func() IterResult {
 			if count < 10 {
 				count++
 				return IterResult{
@@ -1994,7 +1994,7 @@ func ExampleObject_SetSymbol() {
 		})
 		return iter
 	})
-	_ = vm.Set("o", o)
+	vm.Set("o", o)
 
 	res, err := vm.RunString(`
 	var acc = "";
@@ -2007,13 +2007,13 @@ func ExampleObject_SetSymbol() {
 		panic(err)
 	}
 	fmt.Println(res)
-	// 输出: 1 2 3 4 5 6 7 8 9 10
+	// Output: 1 2 3 4 5 6 7 8 9 10
 }
 
 func ExampleRuntime_NewArray() {
 	vm := New()
 	array := vm.NewArray(1, 2, true)
-	_ = vm.Set("array", array)
+	vm.Set("array", array)
 	res, err := vm.RunString(`
 	var acc = "";
 	for (var v of array) {
@@ -2025,7 +2025,7 @@ func ExampleRuntime_NewArray() {
 		panic(err)
 	}
 	fmt.Println(res)
-	// 输出: 1 2 true
+	// Output: 1 2 true
 }
 
 func ExampleRuntime_SetParserOptions() {
@@ -2040,7 +2040,7 @@ func ExampleRuntime_SetParserOptions() {
 		panic(err)
 	}
 	fmt.Println(res.String())
-	// 输出: I did not hang!
+	// Output: I did not hang!
 }
 
 func TestRuntime_SetParserOptions_Eval(t *testing.T) {
@@ -2057,7 +2057,7 @@ func TestRuntime_SetParserOptions_Eval(t *testing.T) {
 
 func TestNativeCallWithRuntimeParameter(t *testing.T) {
 	vm := New()
-	_ = vm.Set("f", func(_ FunctionCall, r *Runtime) Value {
+	vm.Set("f", func(_ FunctionCall, r *Runtime) Value {
 		if r == vm {
 			return valueTrue
 		}
@@ -2201,7 +2201,7 @@ func TestStacktraceLocationThrowFromCatch(t *testing.T) {
 	if len(stack) != 2 {
 		t.Fatalf("Unexpected stack len: %v", stack)
 	}
-	if frame := stack[0]; frame.funcName != "main" || frame.pc != 30 {
+	if frame := stack[0]; frame.funcName != "main" || frame.pc != 29 {
 		t.Fatalf("Unexpected stack frame 0: %#v", frame)
 	}
 	if frame := stack[1]; frame.funcName != "" || frame.pc != 7 {
@@ -2214,7 +2214,7 @@ func TestStacktraceLocationThrowFromGo(t *testing.T) {
 	f := func() {
 		panic(vm.ToValue("Test"))
 	}
-	_ = vm.Set("f", f)
+	vm.Set("f", f)
 	_, err := vm.RunString(`
 	function main() {
 		(function noop() {})();
@@ -2235,7 +2235,7 @@ func TestStacktraceLocationThrowFromGo(t *testing.T) {
 	if frame := stack[0]; !strings.HasSuffix(frame.funcName.String(), "TestStacktraceLocationThrowFromGo.func1") {
 		t.Fatalf("Unexpected stack frame 0: %#v", frame)
 	}
-	if frame := stack[1]; frame.funcName != "callee" || frame.pc != 1 {
+	if frame := stack[1]; frame.funcName != "callee" || frame.pc != 2 {
 		t.Fatalf("Unexpected stack frame 1: %#v", frame)
 	}
 	if frame := stack[2]; frame.funcName != "main" || frame.pc != 6 {
@@ -2243,6 +2243,59 @@ func TestStacktraceLocationThrowFromGo(t *testing.T) {
 	}
 	if frame := stack[3]; frame.funcName != "" || frame.pc != 4 {
 		t.Fatalf("Unexpected stack frame 3: %#v", frame)
+	}
+}
+
+func TestStacktraceLocationThrowNativeInTheMiddle(t *testing.T) {
+	vm := New()
+	v, err := vm.RunString(`(function f1() {
+		throw new Error("test")
+	})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var f1 func()
+	err = vm.ExportTo(v, &f1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := func() {
+		f1()
+	}
+	vm.Set("f", f)
+	_, err = vm.RunString(`
+	function main() {
+		(function noop() {})();
+		return callee();
+	}
+	function callee() {
+		return f();
+	}
+	main();
+	`)
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+	stack := err.(*Exception).stack
+	if len(stack) != 5 {
+		t.Fatalf("Unexpected stack len: %v", stack)
+	}
+	if frame := stack[0]; frame.funcName != "f1" || frame.pc != 7 {
+		t.Fatalf("Unexpected stack frame 0: %#v", frame)
+	}
+	if frame := stack[1]; !strings.HasSuffix(frame.funcName.String(), "TestStacktraceLocationThrowNativeInTheMiddle.func1") {
+		t.Fatalf("Unexpected stack frame 1: %#v", frame)
+	}
+	if frame := stack[2]; frame.funcName != "callee" || frame.pc != 2 {
+		t.Fatalf("Unexpected stack frame 2: %#v", frame)
+	}
+	if frame := stack[3]; frame.funcName != "main" || frame.pc != 6 {
+		t.Fatalf("Unexpected stack frame 3: %#v", frame)
+	}
+	if frame := stack[4]; frame.funcName != "" || frame.pc != 4 {
+		t.Fatalf("Unexpected stack frame 4: %#v", frame)
 	}
 }
 
@@ -2479,7 +2532,8 @@ func TestErrorStack(t *testing.T) {
 	if (Reflect.ownKeys(err)[0] !== "stack") {
 		throw new Error("property order");
 	}
-	if (err.stack !== "Error\n\tat test.js:2:14(3)\n") {
+	const stack = err.stack;
+	if (stack !== "Error: test\n\tat test.js:2:14(3)\n") {
 		throw new Error(stack);
 	}
 	delete err.stack;
@@ -2492,16 +2546,175 @@ func TestErrorStack(t *testing.T) {
 
 func TestErrorFormatSymbols(t *testing.T) {
 	vm := New()
-	_ = vm.Set("a", func() (Value, error) { return nil, errors.New("something %s %f") })
+	vm.Set("a", func() (Value, error) { return nil, errors.New("something %s %f") })
 	_, err := vm.RunString("a()")
 	if !strings.Contains(err.Error(), "something %s %f") {
 		t.Fatalf("Wrong value %q", err.Error())
 	}
 }
 
+func TestPanicPassthrough(t *testing.T) {
+	const panicString = "Test panic"
+	r := New()
+	r.Set("f", func() {
+		panic(panicString)
+	})
+	defer func() {
+		if x := recover(); x != nil {
+			if x != panicString {
+				t.Fatalf("Wrong panic value: %v", x)
+			}
+			if len(r.vm.callStack) > 0 {
+				t.Fatal("vm.callStack is not empty")
+			}
+		} else {
+			t.Fatal("No panic")
+		}
+	}()
+	_, _ = r.RunString("f()")
+	t.Fatal("Should not reach here")
+}
+
+func TestSuspendResumeRelStackLen(t *testing.T) {
+	const SCRIPT = `
+	async function f2() {
+		throw new Error("test");
+	}
+
+	async function f1() {
+		let a = [1];
+		for (let i of a) {
+			try {
+				await f2();
+			} catch {
+				return true;
+			}
+		}
+	}
+
+	async function f() {
+		let a = [1];
+		for (let i of a) {
+			return await f1();
+		}
+	}
+	return f();
+	`
+	testAsyncFunc(SCRIPT, valueTrue, t)
+}
+
+func TestNestedTopLevelConstructorCall(t *testing.T) {
+	r := New()
+	c := func(call ConstructorCall, rt *Runtime) *Object {
+		if _, err := rt.RunString("(5)"); err != nil {
+			panic(err)
+		}
+		return nil
+	}
+	if err := r.Set("C", c); err != nil {
+		panic(err)
+	}
+	if _, err := r.RunString("new C()"); err != nil {
+		panic(err)
+	}
+}
+
+func TestNestedTopLevelConstructorPanicAsync(t *testing.T) {
+	r := New()
+	c := func(call ConstructorCall, rt *Runtime) *Object {
+		c, ok := AssertFunction(rt.ToValue(func() {}))
+		if !ok {
+			panic("wat")
+		}
+		if _, err := c(Undefined()); err != nil {
+			panic(err)
+		}
+		return nil
+	}
+	if err := r.Set("C", c); err != nil {
+		panic(err)
+	}
+	if _, err := r.RunString("new C()"); err != nil {
+		panic(err)
+	}
+}
+
+func TestAsyncFuncThrow(t *testing.T) {
+	const SCRIPT = `
+	class TestError extends Error {
+	}
+
+	async function f() {
+		throw new TestError();
+	}
+
+	async function f1() {
+		try {
+			await f();
+		} catch (e) {
+			assert.sameValue(e.constructor.name, TestError.name);
+			return;
+		}
+		throw new Error("No exception was thrown");
+	}
+	await f1();
+	return undefined;
+	`
+	testAsyncFuncWithTestLib(SCRIPT, _undefined, t)
+}
+
+func TestAsyncStacktrace(t *testing.T) {
+	// Do not reformat, assertions depend on the line and column numbers
+	const SCRIPT = `
+	let ex;
+	async function foo(x) {
+	  await bar(x);
+	}
+
+	async function bar(x) {
+	  await x;
+	  throw new Error("Let's have a look...");
+	}
+
+	try {
+		await foo(1);
+	} catch (e) {
+		assertStack(e, [
+			["test.js", "bar", 9, 10],
+			["test.js", "foo", 4, 13],
+			["test.js", "test", 13, 12],
+		]);
+	}
+	`
+	testAsyncFuncWithTestLibX(SCRIPT, _undefined, t)
+}
+
+/*
+func TestArrayConcatSparse(t *testing.T) {
+function foo(a,b,c)
+  {
+    arguments[0] = 1; arguments[1] = 'str'; arguments[2] = 2.1;
+    if(1 === a && 'str' === b && 2.1 === c)
+      return true;
+  }
+
+
+	const SCRIPT = `
+	var a1 = [];
+	var a2 = [];
+	a1[500000] = 1;
+	a2[1000000] = 2;
+	var a3 = a1.concat(a2);
+	a3.length === 1500002 && a3[500000] === 1 && a3[1500001] == 2;
+	`
+
+	testScript(SCRIPT, valueTrue, t)
+}
+*/
+
 func BenchmarkCallReflect(b *testing.B) {
 	vm := New()
-	_ = vm.Set("f", func(v Value) {
+	vm.Set("f", func(v Value) {
 
 	})
 
@@ -2509,13 +2722,13 @@ func BenchmarkCallReflect(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
 	}
 }
 
 func BenchmarkCallNative(b *testing.B) {
 	vm := New()
-	_ = vm.Set("f", func(call FunctionCall) (ret Value) {
+	vm.Set("f", func(call FunctionCall) (ret Value) {
 		return
 	})
 
@@ -2523,7 +2736,27 @@ func BenchmarkCallNative(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
+	}
+}
+
+func BenchmarkCallJS(b *testing.B) {
+	vm := New()
+	_, err := vm.RunString(`
+	function f() {
+		return 42;
+	}
+	`)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	prg := MustCompile("test.js", "f(null)", true)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		vm.RunProgram(prg)
 	}
 }
 
@@ -2539,7 +2772,7 @@ func BenchmarkMainLoop(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = vm.RunProgram(prg)
+		vm.RunProgram(prg)
 	}
 }
 

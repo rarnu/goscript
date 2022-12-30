@@ -2,10 +2,6 @@ package goscript
 
 import (
 	"errors"
-	"github.com/rarnu/goscript/parser"
-	"github.com/rarnu/goscript/unistring"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"hash/maphash"
 	"io"
 	"math"
@@ -13,6 +9,11 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/rarnu/goscript/parser"
+	"github.com/rarnu/goscript/unistring"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type unicodeString []uint16
@@ -27,6 +28,7 @@ type utf16RuneReader struct {
 	pos int
 }
 
+// passes through invalid surrogate pairs
 type lenientUtf16Decoder struct {
 	utf16Reader io.RuneReader
 	prev        rune
@@ -439,7 +441,7 @@ func (s unicodeString) String() string {
 }
 
 func (s unicodeString) compareTo(other valueString) int {
-	// 此处需要处理非法的 UTF-16
+	// TODO handle invalid UTF-16
 	return strings.Compare(s.String(), other.String())
 }
 
@@ -455,6 +457,7 @@ func (s unicodeString) index(substr valueString, start int) int {
 		}
 	}
 	s1 := s[1:]
+	// TODO: optimise
 	end := len(s1) - len(ss)
 	for start <= end {
 		for i := 0; i < len(ss); i++ {
@@ -481,10 +484,12 @@ func (s unicodeString) lastIndex(substr valueString, start int) int {
 			ss[i] = uint16(a[i])
 		}
 	}
+
 	s1 := s[1:]
 	if maxStart := len(s1) - len(ss); start > maxStart {
 		start = maxStart
 	}
+	// TODO: optimise
 	for start >= 0 {
 		for i := 0; i < len(ss); i++ {
 			if s1[start+i] != ss[i] {
@@ -506,6 +511,7 @@ func unicodeStringFromRunes(r []rune) unicodeString {
 func toLower(s string) valueString {
 	caser := cases.Lower(language.Und)
 	r := []rune(caser.String(s))
+	// Workaround
 	ascii := true
 	for i := 0; i < len(r)-1; i++ {
 		if (i == 0 || r[i-1] != 0x3b1) && r[i] == 0x345 && r[i+1] == 0x3c2 {
@@ -534,7 +540,7 @@ func (s unicodeString) toUpper() valueString {
 	return newStringValue(caser.String(s.String()))
 }
 
-func (s unicodeString) Export() any {
+func (s unicodeString) Export() interface{} {
 	return s.String()
 }
 

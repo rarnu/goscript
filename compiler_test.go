@@ -129,9 +129,25 @@ const TESTLIBX = `
 		}
 		return assert._isSameValue(a, b);
 	}
+
+	function assertStack(e, expected) {
+		const lines = e.stack.split('\n');
+		assert.sameValue(lines.length, expected.length + 2, "Stack lengths mismatch");
+		let lnum = 1;
+		for (const [file, func, line, col] of expected) {
+			const expLine = func === "" ?
+				"\tat " + file + ":" + line + ":" + col + "(" :
+				"\tat " + func + " (" + file + ":" + line + ":" + col + "(";
+			assert.sameValue(lines[lnum].substring(0, expLine.length), expLine, "line " + lnum);
+			lnum++;
+		}
+	}
 `
 
 var (
+	// The reason it's implemented this way rather than just as _testLib = MustCompile(...)
+	// is because when you try to debug the compiler and set a breakpoint it gets triggered during the
+	// initialisation which is annoying.
 	_testLib, _testLibX       *Program
 	testLibOnce, testLibXOnce sync.Once
 )
@@ -151,13 +167,14 @@ func testLibX() *Program {
 }
 
 func (r *Runtime) testPrg(p *Program, expectedResult Value, t *testing.T) {
+	p.dumpCode(t.Logf)
+	v, err := r.RunProgram(p)
+	if err != nil {
+		if ex, ok := err.(*Exception); ok {
+			t.Fatalf("Exception: %v", ex.String())
+		}
+	}
 	vm := r.vm
-	vm.prg = p
-	vm.pc = 0
-	vm.prg.dumpCode(t.Logf)
-	vm.result = _undefined
-	vm.run()
-	v := vm.result
 	t.Logf("stack size: %d", len(vm.stack))
 	t.Logf("stashAllocs: %d", vm.stashAllocs)
 
@@ -211,6 +228,65 @@ func testScriptWithTestLib(script string, expectedResult Value, t *testing.T) {
 
 func testScriptWithTestLibX(script string, expectedResult Value, t *testing.T) {
 	New().testScriptWithTestLibX(script, expectedResult, t)
+}
+
+func (r *Runtime) testAsyncFunc(src string, expectedResult Value, t *testing.T) {
+	v, err := r.RunScript("test.js", "(async function test() {"+src+"\n})()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	promise := v.Export().(*Promise)
+	switch s := promise.State(); s {
+	case PromiseStateFulfilled:
+		if res := promise.Result(); res == nil && expectedResult != nil || !res.SameAs(expectedResult) {
+			t.Fatalf("Result: %+v, expected: %+v", res, expectedResult)
+		}
+	case PromiseStateRejected:
+		res := promise.Result()
+		if resObj, ok := res.(*Object); ok {
+			if stack := resObj.Get("stack"); stack != nil {
+				t.Fatal(stack.String())
+			}
+		}
+		t.Fatal(res.String())
+	default:
+		t.Fatalf("Unexpected promise state: %v", s)
+	}
+}
+
+func (r *Runtime) testAsyncFuncWithTestLib(src string, expectedResult Value, t *testing.T) {
+	_, err := r.RunProgram(testLib())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r.testAsyncFunc(src, expectedResult, t)
+}
+
+func (r *Runtime) testAsyncFuncWithTestLibX(src string, expectedResult Value, t *testing.T) {
+	_, err := r.RunProgram(testLib())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = r.RunProgram(testLibX())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r.testAsyncFunc(src, expectedResult, t)
+}
+
+func testAsyncFunc(src string, expectedResult Value, t *testing.T) {
+	New().testAsyncFunc(src, expectedResult, t)
+}
+
+func testAsyncFuncWithTestLib(src string, expectedResult Value, t *testing.T) {
+	New().testAsyncFuncWithTestLib(src, expectedResult, t)
+}
+
+func testAsyncFuncWithTestLibX(src string, expectedResult Value, t *testing.T) {
+	New().testAsyncFuncWithTestLibX(src, expectedResult, t)
 }
 
 func TestEmptyProgram(t *testing.T) {
@@ -446,6 +522,12 @@ func TestCallLessArgsDynamicLocalVar(t *testing.T) {
 
 	testScript(SCRIPT, intToValue(42), t)
 }
+
+/*
+func TestFib(t *testing.T) {
+	testScript(TEST_FIB, valueInt(9227465), t)
+}
+*/
 
 func TestNativeCall(t *testing.T) {
 	const SCRIPT = `
@@ -3683,7 +3765,7 @@ func TestLexicalStrictNames(t *testing.T) {
 }
 
 func TestAssignAfterStackExpand(t *testing.T) {
-	// 确保 x 的引用在堆栈被复制后不会保持不变
+	// make sure the reference to the variable x does not remain stale after the stack is copied
 	const SCRIPT = `
 	function f() {
 		let sum = 0;
@@ -4348,10 +4430,12 @@ func TestCatchParamPattern(t *testing.T) {
 }
 
 func TestArrowUseStrict(t *testing.T) {
+	// simple parameter list -- ok
 	_, err := Compile("", "(a) => {'use strict';}", false)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// non-simple parameter list -- syntax error
 	_, err = Compile("", "(a=0) => {'use strict';}", false)
 	if err == nil {
 		t.Fatal("expected error")
@@ -4470,7 +4554,7 @@ func TestDuplicateFunc(t *testing.T) {
 }
 
 func TestSrcLocations(t *testing.T) {
-	// 这个测试用例的代码不要格式化，断言需要行号和列号
+	// Do not reformat, assertions depend on the line and column numbers
 	const SCRIPT = `
 	let i = {
 		valueOf() {
@@ -4525,21 +4609,8 @@ func TestSrcLocations(t *testing.T) {
 						["test.js", "", 49, 4]
 						]);
 	}
-
-
-	function assertStack(e, expected) {
-		const lines = e.stack.split('\n');
-		let lnum = 1;
-		for (const [file, func, line, col] of expected) {
-			const expLine = func === "" ?
-				"\tat " + file + ":" + line + ":" + col + "(" :
-				"\tat " + func + " (" + file + ":" + line + ":" + col + "(";
-			assert.sameValue(lines[lnum].substring(0, expLine.length), expLine, "line " + lnum);
-			lnum++;
-		}
-	}
 	`
-	testScriptWithTestLib(SCRIPT, _undefined, t)
+	testScriptWithTestLibX(SCRIPT, _undefined, t)
 }
 
 func TestSrcLocationThrowLiteral(t *testing.T) {
@@ -5536,6 +5607,129 @@ func TestThisResolutionWithStackVar(t *testing.T) {
 	`
 	testScript(SCRIPT, valueTrue, t)
 }
+
+func TestForInLoopContinue(t *testing.T) {
+	const SCRIPT = `
+	var globalSink;
+	(function() {
+	    const data = [{disabled: true}, {}];
+		function dummy() {}
+	    function f1() {}
+
+	    function f() {
+			dummy(); // move dummy to stash (so that f1 is at index 1)
+	        for (const d of data) {
+	            if (d.disabled) continue;
+	            globalSink = () => d; // move d to stash
+	            f1();
+	        }
+	    }
+
+	    f();
+	})();
+	`
+	testScript(SCRIPT, _undefined, t)
+}
+
+func TestForInLoopContinueOuter(t *testing.T) {
+	const SCRIPT = `
+	var globalSink;
+	(function() {
+	    const data = [{disabled: true}, {}];
+		function dummy1() {}
+	    function f1() {}
+
+	    function f() {
+			dummy1();
+			let counter = 0;
+			OUTER: for (let i = 0; i < 1; i++) {
+		        for (const d of data) {
+		            if (d.disabled) continue OUTER;
+		            globalSink = () => d;
+		        }
+				counter++;
+			}
+			f1();
+			if (counter !== 0) {
+				throw new Error(counter);
+			}
+	    }
+
+	    f();
+	})();
+	`
+	testScript(SCRIPT, _undefined, t)
+}
+
+func TestLexicalDeclInSwitch(t *testing.T) {
+	const SCRIPT = `
+	switch(0) {
+	    case 1:
+	        if (false) b = 3;
+	    case 2:
+	        const c = 1;
+	}
+	`
+	testScript(SCRIPT, _undefined, t)
+}
+
+func TestClassFieldSpecial(t *testing.T) {
+	const SCRIPT = `
+	class C {
+		get;
+		set;
+		async;
+		static;
+	}
+	`
+	testScript(SCRIPT, _undefined, t)
+}
+
+func TestClassMethodSpecial(t *testing.T) {
+	const SCRIPT = `
+	class C {
+		get() {}
+		set() {}
+		async() {}
+		static() {}
+	}
+	`
+	testScript(SCRIPT, _undefined, t)
+}
+
+func TestAsyncFunc(t *testing.T) {
+	const SCRIPT = `
+	async (x = true, y) => {};
+	async x => {};
+	let passed = false;
+	async function f() {
+		return true;
+	}
+	async function f1(arg = true) {
+		passed = await f();
+	}
+	await f1();
+	return passed;
+	`
+	testAsyncFunc(SCRIPT, valueTrue, t)
+}
+
+/*
+func TestBabel(t *testing.T) {
+	src, err := os.ReadFile("babel7.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm := New()
+	_, err = vm.RunString(string(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = vm.RunString(`var result = Babel.transform("", {presets: ["es2015"]});`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}*/
 
 func BenchmarkCompile(b *testing.B) {
 	data, err := os.ReadFile("testdata/S15.10.2.12_A1_T1.js")

@@ -10,8 +10,8 @@ import (
 func TestJSONMarshalObject(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	_ = o.Set("test", 42)
-	_ = o.Set("testfunc", vm.Get("Error"))
+	o.Set("test", 42)
+	o.Set("testfunc", vm.Get("Error"))
 	b, err := json.Marshal(o)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestJSONMarshalObject(t *testing.T) {
 func TestJSONMarshalGoDate(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	_ = o.Set("test", time.Unix(86400, 0).UTC())
+	o.Set("test", time.Unix(86400, 0).UTC())
 	b, err := json.Marshal(o)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestJSONMarshalGoDate(t *testing.T) {
 func TestJSONMarshalObjectCircular(t *testing.T) {
 	vm := New()
 	o := vm.NewObject()
-	_ = o.Set("o", o)
+	o.Set("o", o)
 	_, err := json.Marshal(o)
 	if err == nil {
 		t.Fatal("Expected error")
@@ -48,6 +48,8 @@ func TestJSONMarshalObjectCircular(t *testing.T) {
 }
 
 func TestJSONParseReviver(t *testing.T) {
+	// example from
+	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse
 	const SCRIPT = `
 	JSON.parse('{"p": 5}', function(key, value) {
 	  return typeof value === 'number'
@@ -69,21 +71,21 @@ func BenchmarkJSONStringify(b *testing.B) {
 	var createObj func(level int) *Object
 	createObj = func(level int) *Object {
 		o := vm.NewObject()
-		_ = o.Set("field1", "test")
-		_ = o.Set("field2", 42)
+		o.Set("field1", "test")
+		o.Set("field2", 42)
 		if level > 0 {
 			level--
-			_ = o.Set("obj1", createObj(level))
-			_ = o.Set("obj2", createObj(level))
+			o.Set("obj1", createObj(level))
+			o.Set("obj2", createObj(level))
 		}
 		return o
 	}
 
 	o := createObj(3)
-	j := vm.Get("JSON").(*Object)
-	stringify, _ := AssertFunction(j.Get("stringify"))
+	json := vm.Get("JSON").(*Object)
+	stringify, _ := AssertFunction(json.Get("stringify"))
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = stringify(nil, o)
+		stringify(nil, o)
 	}
 }

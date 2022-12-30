@@ -1,6 +1,6 @@
 package goscript
 
-// 参考 https://gist.github.com/orlp/3551590
+// ported from https://gist.github.com/orlp/3551590
 
 var highest_bit_set = [256]byte{
 	0, 1, 2, 2, 3, 3, 3, 3,

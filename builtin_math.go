@@ -102,6 +102,8 @@ func (r *Runtime) math_hypot(call FunctionCall) Value {
 		return _positiveZero
 	}
 
+	// Kahan summation to avoid rounding errors.
+	// Normalize the numbers to the largest one to avoid overflow.
 	var sum, compensation float64
 	for _, n := range absValues {
 		n /= max
@@ -150,6 +152,7 @@ func (r *Runtime) math_max(call FunctionCall) Value {
 	return floatToValue(result)
 
 NaNLoop:
+	// All arguments still need to be coerced to number according to the specs.
 	for _, arg := range args {
 		nilSafe(arg).ToFloat()
 	}
@@ -171,6 +174,7 @@ func (r *Runtime) math_min(call FunctionCall) Value {
 	return floatToValue(result)
 
 NaNLoop:
+	// All arguments still need to be coerced to number according to the specs.
 	for _, arg := range args {
 		nilSafe(arg).ToFloat()
 	}
@@ -239,7 +243,7 @@ func (r *Runtime) math_round(call FunctionCall) Value {
 func (r *Runtime) math_sign(call FunctionCall) Value {
 	arg := call.Argument(0)
 	num := arg.ToFloat()
-	if math.IsNaN(num) || num == 0 {
+	if math.IsNaN(num) || num == 0 { // this will match -0 too
 		return arg
 	}
 	if num > 0 {

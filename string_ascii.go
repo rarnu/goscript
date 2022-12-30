@@ -1,13 +1,14 @@
 package goscript
 
 import (
-	"github.com/rarnu/goscript/unistring"
 	"hash/maphash"
 	"io"
 	"math"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/rarnu/goscript/unistring"
 )
 
 type asciiString string
@@ -46,6 +47,7 @@ func (s asciiString) utf16Runes() []rune {
 	return runes
 }
 
+// ss must be trimmed
 func stringToInt(ss string) (int64, error) {
 	if ss == "" {
 		return 0, nil
@@ -316,7 +318,7 @@ func (s asciiString) string() unistring.String {
 	return unistring.String(s)
 }
 
-func (s asciiString) Export() any {
+func (s asciiString) Export() interface{} {
 	return string(s)
 }
 

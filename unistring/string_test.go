@@ -1,8 +1,6 @@
 package unistring
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestString_AsUtf16(t *testing.T) {
 	const str = "más"
