@@ -154,6 +154,8 @@ type global struct {
 	InfluxDBWritePrototype *Object
 	InfluxDBQuery          *Object
 	InfluxDBQueryPrototype *Object
+	InfluxDBPoint          *Object
+	InfluxDBPointPrototype *Object
 	Mssql                  *Object
 	MssqlPrototype         *Object
 	Mysql                  *Object

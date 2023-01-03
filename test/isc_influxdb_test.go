@@ -40,6 +40,7 @@ func TestInfluxDBQuery(t *testing.T) {
 	qa := cli.QueryAPI("isyscore")
 	query := `from(bucket:"wms")|> range(start: -3h) |> filter(fn: (r) => r._measurement == "stat")`
 	result, _ := qa.Query(c0.Background(), query)
+
 	for result.Next() {
 		fmt.Printf("value: %+v\n", result.Record().Values())
 	}
@@ -49,11 +50,13 @@ func TestInfluxDBScript(t *testing.T) {
 	SCRIPT := `
 	let db = new InfluxDB('http://10.211.55.23:8086','BnIerNUMg2Q5JJ7r7hfFwqF73owecYKoqR731vf202JXnJajGQLH7Q9Ti-S4X018QXRRU9WC_ZxzwNHDEndhrQ==')
 	let wa = db.write('isyscore', 'wms')
-	wa.writeRecord('23333')
+	let pt = new InfluxDBPoint('stat', {'unit':'temperature'}, {'min': 25.0, 'max': 30.0})
+	wa.writePoint(pt)
 	db.close()
 	`
 	vm := goscript.New()
 	new(require.Registry).Enable(vm)
 	console.Enable(vm)
-	_, _ = vm.RunScript("index.js", SCRIPT)
+	_, e := vm.RunString(SCRIPT)
+	fmt.Printf("err: %v\n", e)
 }

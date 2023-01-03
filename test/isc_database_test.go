@@ -41,3 +41,7 @@ func TestSQLServer(t *testing.T) {
 	sqlstr := "select * from dbo.SAMPLE"
 	testWithDatabase(connStr, "sqlserver", sqlstr)
 }
+
+func TestSQLite3(t *testing.T) {
+	// sql.Open("sqlite3", ":memory:")
+}

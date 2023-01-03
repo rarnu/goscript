@@ -56,6 +56,7 @@ func (r *Runtime) builtin_newSQLite(args []Value, newTarget *Object) *Object {
 	}
 
 	// 连接数据库
+	// sqlite3 的 host 可以是 ":memory:"，表示该数据库是内存数据库
 	_host := args[0].toString().String()
 	db, err := sql.Open("sqlite", _host)
 	if err != nil {

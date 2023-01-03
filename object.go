@@ -41,6 +41,7 @@ const (
 	classInfluxDB      = "InfluxDB"
 	classInfluxDBWrite = "InfluxDBWrite"
 	classInfluxDBQuery = "InfluxDBQuery"
+	classInfluxDBPoint = "InfluxDBPoint"
 	classMssql         = "Mssql"
 	classMysql         = "Mysql"
 	classOracle        = "Oracle"
