@@ -9,6 +9,7 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
 	github.com/go-sql-driver/mysql v1.7.0
+	github.com/google/go-dap v0.7.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.1
 	github.com/isyscore/isc-gobase v1.4.13
 	github.com/mattn/go-sqlite3 v1.14.16
