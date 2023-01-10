@@ -9,7 +9,7 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.1
-	github.com/isyscore/isc-gobase v1.4.13
+	github.com/isyscore/isc-gobase v1.5.0
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/microsoft/go-mssqldb v0.17.0
 	github.com/sijms/go-ora/v2 v2.5.21
