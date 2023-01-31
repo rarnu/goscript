@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/go-dap"
+	"github.com/rarnu/goscript"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"sync"
 )
@@ -18,6 +22,38 @@ type Session struct {
 	// sendingMu synchronizes writing to conn
 	// to ensure that messages do not get interleaved
 	sendingMu sync.Mutex
+
+	// mu synchronizes access to objects set on start-up (from run goroutine)
+	// and stopped on teardown (from main goroutine)
+	mu sync.Mutex
+
+	r   *goscript.Runtime
+	prg *goscript.Program
+}
+
+func debugRun() error {
+	s := NewSession(nil, &Config{})
+
+	// receive command from terminal
+	commandCh := make(chan string)
+
+	for command := range commandCh {
+		request, err := dap.DecodeProtocolMessage([]byte(command))
+		if err != nil {
+			return err
+		}
+		// dap.LaunchRequest => go s.r.compile("")
+		// dap.AttachRequest => new debugger
+
+		// send response to terminal
+		//if err = s.handleRequest(request); err != nil {
+		//	// stop script
+		//	return err
+		//}
+	}
+	// stop script
+
+	return nil
 }
 
 func NewSession(conn io.ReadWriteCloser, config *Config) *Session {
@@ -95,10 +131,18 @@ func (s *Session) handleRequest(request dap.Message) {
 	}
 	switch request := request.(type) {
 	case *dap.InitializeRequest: // Required
+		// init Runtime and debugger
+		// response support capability with dap
 		s.onInitializeRequest(request)
 	case *dap.LaunchRequest: // Required
+		// compile script
 		s.onLaunchRequest(request)
 	case *dap.AttachRequest: // Required
+		// record ProcessID
+		// 1.how to get the file
+		// 2.when to runScript
+		// 3.async
+		//s.r.RunScript("test.js", "")
 		s.onAttachRequest(request)
 	case *dap.DisconnectRequest: // Required
 		s.onDisconnectRequest(request)
@@ -185,6 +229,11 @@ func (s *Session) sendErrorResponseWithOpts(request dap.Request, id int, summary
 	s.send(er)
 }
 
+// sendShowUserErrorResponse sends an error response with showUser enabled.
+func (s *Session) sendShowUserErrorResponse(request dap.Request, id int, summary, details string) {
+	s.sendErrorResponseWithOpts(request, id, summary, details, true /*showUser*/)
+}
+
 func (s *Session) send(message dap.Message) {
 	jsonmsg, _ := json.Marshal(message)
 	s.config.log.Debug("[-> to client]", string(jsonmsg))
@@ -218,6 +267,184 @@ func (s *Session) checkNoDebug(request dap.Message) bool {
 		s.sendErrorResponse(*r, NoDebugIsRunning, "noDebug mode", fmt.Sprintf("unable to process '%s' request", r.Command))
 	}
 	return true
+}
+
+func (s *Session) onInitializeRequest(request *dap.InitializeRequest) {
+	if request.Arguments.PathFormat != "path" {
+		s.sendErrorResponse(request.Request, FailedToInitialize, "Failed to initialize",
+			fmt.Sprintf("Unsupported 'pathFormat' value '%s'.", request.Arguments.PathFormat))
+		return
+	}
+	if !request.Arguments.LinesStartAt1 {
+		s.sendErrorResponse(request.Request, FailedToInitialize, "Failed to initialize",
+			"Only 1-based line numbers are supported.")
+		return
+	}
+	if !request.Arguments.ColumnsStartAt1 {
+		s.sendErrorResponse(request.Request, FailedToInitialize, "Failed to initialize",
+			"Only 1-based column numbers are supported.")
+		return
+	}
+
+	r := goscript.New()
+	s.r = r
+
+	response := &dap.InitializeResponse{Response: *newResponse(request.Request)}
+	response.Body.SupportsConfigurationDoneRequest = true
+	response.Body.SupportsConditionalBreakpoints = true
+	response.Body.SupportsDelayedStackTraceLoading = true
+	response.Body.SupportsFunctionBreakpoints = true
+	response.Body.SupportsInstructionBreakpoints = true
+	response.Body.SupportsExceptionInfoRequest = true
+	response.Body.SupportsSetVariable = true
+	response.Body.SupportsEvaluateForHovers = true
+	response.Body.SupportsClipboardContext = true
+	response.Body.SupportsSteppingGranularity = true
+	response.Body.SupportsLogPoints = true
+	response.Body.SupportsDisassembleRequest = true
+	// To be enabled by CapabilitiesEvent based on launch configuration
+	response.Body.SupportsStepBack = false
+	response.Body.SupportTerminateDebuggee = false
+	// TODO(polina): support these requests in addition to vscode-go feature parity
+	response.Body.SupportsTerminateRequest = false
+	response.Body.SupportsRestartRequest = false
+	response.Body.SupportsSetExpression = false
+	response.Body.SupportsLoadedSourcesRequest = false
+	response.Body.SupportsReadMemoryRequest = false
+	response.Body.SupportsCancelRequest = false
+	s.send(response)
+}
+
+func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
+	// 1.check debugger
+	if s.r.GetVm().GetDebugger() != nil {
+		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
+			fmt.Sprintf("debug session already in progress at %s - use remote attach mode to connect to a server with an active debug session", s.address()))
+		return
+	}
+	// 2.parse LaunchConfig
+	var args = defaultLaunchConfig // narrow copy for initializing non-zero default values
+	if err := unmarshalLaunchAttachArgs(request.Arguments, &args); err != nil {
+		s.sendShowUserErrorResponse(request.Request,
+			FailedToLaunch, "Failed to launch", fmt.Sprintf("invalid debug configuration - %v", err))
+		return
+	}
+	s.config.log.Debug("parsed launch config: ", prettyPrint(args))
+	// 3.change working dir and env
+	if args.DlvCwd != "" {
+		if err := os.Chdir(args.DlvCwd); err != nil {
+			s.sendShowUserErrorResponse(request.Request,
+				FailedToLaunch, "Failed to launch", fmt.Sprintf("failed to chdir to %q - %v", args.DlvCwd, err))
+			return
+		}
+	}
+	for k, v := range args.Env {
+		if v != nil {
+			if err := os.Setenv(k, *v); err != nil {
+				s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch", fmt.Sprintf("failed to setenv(%v) - %v", k, err))
+				return
+			}
+		} else {
+			if err := os.Unsetenv(k); err != nil {
+				s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch", fmt.Sprintf("failed to unsetenv(%v) - %v", k, err))
+				return
+			}
+		}
+	}
+	// 4.check config (only support debug currently)
+	if args.Mode == "" {
+		args.Mode = "debug"
+	}
+	if args.Mode != "debug" {
+		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
+			fmt.Sprintf("invalid debug configuration - unsupported 'mode' attribute %q", args.Mode))
+		return
+	}
+	var err error
+	// 5.build js file
+	filename := args.Program
+	if args.Mode == "debug" { //  || args.Mode == "test"
+		src, err := os.ReadFile(filename)
+		if err != nil {
+			s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
+				fmt.Sprintf("cannot read js file,err = %v", err))
+			return
+		}
+		prg, err := goscript.Compile(filename, string(src), false)
+		if err != nil {
+			s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
+				fmt.Sprintf("Compile err = %v", err))
+			return
+		}
+		s.prg = prg
+	}
+	// 6.start if noDebug
+	if args.NoDebug {
+		// Skip 'initialized' event, which will prevent the client from sending
+		// debug-related requests.
+		s.send(&dap.LaunchResponse{Response: *newResponse(request.Request)})
+
+		// Start the program on a different goroutine, so we can listen for disconnect request.
+		go func() {
+			if _, err := s.r.RunProgram(s.prg); err != nil {
+				s.config.log.Debugf("program exited with error: %v", err)
+			}
+			//close(s.noDebugProcess.exited)
+			//s.logToConsole(proc.ErrProcessExited{Pid: cmd.ProcessState.Pid(), Status: cmd.ProcessState.ExitCode()}.Error())
+			s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
+		}()
+		return
+	}
+	// 7.init debugger
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock() // Make sure to unlock in case of panic that will become internal error
+
+		//s.debugger, err = debugger.New(&s.config.Debugger, s.config.ProcessArgs)
+		s.r.AttachDebugger()
+	}()
+	if err != nil {
+		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch", err.Error())
+		return
+	}
+	// Notify the client that the debugger is ready to start accepting
+	// configuration requests for setting breakpoints, etc. The client
+	// will end the configuration sequence with 'configurationDone'.
+	s.send(&dap.InitializedEvent{Event: *newEvent("initialized")})
+	s.send(&dap.LaunchResponse{Response: *newResponse(request.Request)})
+}
+
+// Default output file pathname for the compiled binary in debug or test modes.
+// This is relative to the current working directory of the server.
+const defaultDebugBinary string = "./__debug_bin"
+
+func cleanExeName(name string) string {
+	if runtime.GOOS == "windows" && filepath.Ext(name) != ".exe" {
+		return name + ".exe"
+	}
+	return name
+}
+
+func newResponse(request dap.Request) *dap.Response {
+	return &dap.Response{
+		ProtocolMessage: dap.ProtocolMessage{
+			Seq:  0,
+			Type: "response",
+		},
+		Command:    request.Command,
+		RequestSeq: request.Seq,
+		Success:    true,
+	}
+}
+
+func newEvent(event string) *dap.Event {
+	return &dap.Event{
+		ProtocolMessage: dap.ProtocolMessage{
+			Seq:  0,
+			Type: "event",
+		},
+		Event: event,
+	}
 }
 
 type connection struct {

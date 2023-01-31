@@ -217,6 +217,10 @@ type Runtime struct {
 	asyncContextTracker     AsyncContextTracker
 }
 
+func (r Runtime) GetVm() *vm {
+	return r.vm
+}
+
 type StackFrame struct {
 	prg      *Program
 	funcName unistring.String

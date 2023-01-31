@@ -339,6 +339,10 @@ type vm struct {
 	debugMode bool
 }
 
+func (v vm) GetDebugger() *Debugger {
+	return v.debugger
+}
+
 type instruction interface {
 	exec(*vm)
 }
