@@ -131,18 +131,16 @@ func (s *Session) handleRequest(request dap.Message) {
 	}
 	switch request := request.(type) {
 	case *dap.InitializeRequest: // Required
-		// init Runtime and debugger
+		// init Runtime
 		// response support capability with dap
 		s.onInitializeRequest(request)
 	case *dap.LaunchRequest: // Required
 		// compile script
+		// if no debug start ,else init debugger
 		s.onLaunchRequest(request)
 	case *dap.AttachRequest: // Required
 		// record ProcessID
-		// 1.how to get the file
-		// 2.when to runScript
-		// 3.async
-		//s.r.RunScript("test.js", "")
+		// init debugger
 		s.onAttachRequest(request)
 	case *dap.DisconnectRequest: // Required
 		s.onDisconnectRequest(request)
@@ -250,7 +248,9 @@ func (s *Session) send(message dap.Message) {
 }
 
 func (s Session) Close() {
-
+	if s.conn != nil && !s.conn.isClosed() {
+		s.conn.Close()
+	}
 }
 
 func (s *Session) checkNoDebug(request dap.Message) bool {
@@ -258,7 +258,6 @@ func (s *Session) checkNoDebug(request dap.Message) bool {
 
 	switch request := request.(type) {
 	case *dap.DisconnectRequest:
-		//todo 断开连接
 		s.onDisconnectRequest(request)
 	case *dap.RestartRequest:
 		s.sendUnsupportedErrorResponse(request.Request)
@@ -286,8 +285,7 @@ func (s *Session) onInitializeRequest(request *dap.InitializeRequest) {
 		return
 	}
 
-	r := goscript.New()
-	s.r = r
+	s.r = goscript.New()
 
 	response := &dap.InitializeResponse{Response: *newResponse(request.Request)}
 	response.Body.SupportsConfigurationDoneRequest = true
@@ -412,6 +410,40 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	// will end the configuration sequence with 'configurationDone'.
 	s.send(&dap.InitializedEvent{Event: *newEvent("initialized")})
 	s.send(&dap.LaunchResponse{Response: *newResponse(request.Request)})
+}
+
+// onAttachRequest handles 'attach' request.
+// This is a mandatory request to support.
+// Attach debug sessions support the following modes:
+//
+//   - [DEFAULT] "local" -- attaches debugger to a local running process.
+//     Required args: processID
+//   - "remote" -- attaches client to a debugger already attached to a process.
+//     Required args: none (host/port are used externally to connect)
+func (s *Session) onAttachRequest(request *dap.AttachRequest) {
+	// 没理解做啥用
+}
+
+func (s *Session) onDisconnectRequest(request *dap.DisconnectRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.send(&dap.DisconnectResponse{Response: *newResponse(request.Request)})
+	s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
+	s.conn.Close()
+
+	s.r = nil
+	s.prg = nil
+}
+
+func (s *Session) onPauseRequest(request *dap.PauseRequest) {
+	s.r.Interrupt("pause")
+	s.send(&dap.PauseResponse{Response: *newResponse(request.Request)})
+	// No need to send any event here.
+	// If we received this request while stopped, there already was an event for the stop.
+	// If we received this while running, then doCommand will unblock and trigger the right
+	// event, using debugger.StopReason because manual stop reason always wins even if we
+	// simultaneously receive a manual stop request and hit a breakpoint.
 }
 
 // Default output file pathname for the compiled binary in debug or test modes.
