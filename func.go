@@ -377,7 +377,7 @@ func (f *baseJsFuncObject) __call(args []Value, newTarget, this Value) (Value, *
 		if ex != nil {
 			return nil, ex
 		}
-		if vm.halted() {
+		if vm.Halted() {
 			break
 		}
 	}
@@ -705,7 +705,7 @@ func (g *generator) step() (res Value, resultType resultType, ex *Exception) {
 		if ex != nil {
 			return
 		}
-		if g.vm.halted() {
+		if g.vm.Halted() {
 			break
 		}
 	}

@@ -446,15 +446,75 @@ func (s *Session) onPauseRequest(request *dap.PauseRequest) {
 	// simultaneously receive a manual stop request and hit a breakpoint.
 }
 
-// Default output file pathname for the compiled binary in debug or test modes.
-// This is relative to the current working directory of the server.
-const defaultDebugBinary string = "./__debug_bin"
+func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
+	s.send(&dap.ContinueResponse{
+		Response: *newResponse(request.Request),
+		Body:     dap.ContinueResponseBody{AllThreadsContinued: true}})
 
-func cleanExeName(name string) string {
-	if runtime.GOOS == "windows" && filepath.Ext(name) != ".exe" {
-		return name + ".exe"
+	stopReason := s.r.GetVm().GetDebugger().Continue()
+
+	if s.r.GetVm().Halted() {
+		s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
+		return
 	}
-	return name
+
+	stopped := &dap.StoppedEvent{Event: *newEvent("stopped")}
+	stopped.Body.AllThreadsStopped = true
+	stopped.Body.Reason = string(stopReason)
+	s.send(stopped)
+}
+
+func (s *Session) onNextRequest(request *dap.NextRequest) {
+	s.sendStepResponse(request.Arguments.ThreadId, &dap.NextResponse{Response: *newResponse(request.Request)})
+
+	err := s.r.GetVm().GetDebugger().Next()
+	if err != nil {
+		s.config.log.Errorf("Error next: %v", err)
+		// If we encounter an error, we will have to send a stopped event
+		// since we already sent the step response.
+		stopped := &dap.StoppedEvent{Event: *newEvent("stopped")}
+		stopped.Body.AllThreadsStopped = true
+		stopped.Body.Reason = "error"
+		stopped.Body.Text = err.Error()
+		s.send(stopped)
+		return
+	}
+	// todo response stopped at where
+}
+
+func (s *Session) onStepInRequest(request *dap.StepInRequest) {
+	s.sendStepResponse(request.Arguments.ThreadId, &dap.StepInResponse{Response: *newResponse(request.Request)})
+
+	if err := s.r.GetVm().GetDebugger().StepIn(); err != nil {
+		s.config.log.Errorf("Error next: %v", err)
+		// If we encounter an error, we will have to send a stopped event
+		// since we already sent the step response.
+		stopped := &dap.StoppedEvent{Event: *newEvent("stopped")}
+		stopped.Body.AllThreadsStopped = true
+		stopped.Body.Reason = "error"
+		stopped.Body.Text = err.Error()
+		s.send(stopped)
+		return
+	}
+}
+
+func (s *Session) onStepOutRequest(request *dap.StepOutRequest) {
+	s.sendStepResponse(request.Arguments.ThreadId, &dap.StepOutResponse{Response: *newResponse(request.Request)})
+
+	//todo stepOut?
+}
+
+func (s *Session) sendStepResponse(threadId int, message dap.Message) {
+	// All of the threads will be continued by this request, so we need to send
+	// a continued event so the UI can properly reflect the current state.
+	s.send(&dap.ContinuedEvent{
+		Event: *newEvent("continued"),
+		Body: dap.ContinuedEventBody{
+			ThreadId:            threadId,
+			AllThreadsContinued: true,
+		},
+	})
+	s.send(message)
 }
 
 func newResponse(request dap.Request) *dap.Response {
