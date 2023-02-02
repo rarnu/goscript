@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"sync"
 )
@@ -515,6 +514,36 @@ func (s *Session) sendStepResponse(threadId int, message dap.Message) {
 		},
 	})
 	s.send(message)
+}
+
+func (s *Session) onSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
+	fileName := request.Arguments.Source.Name
+	if fileName == "" {
+		s.sendErrorResponse(request.Request, UnableToSetBreakpoints, "Unable to set or clear breakpoints", "empty file path")
+		return
+	}
+	debugger := s.r.GetVm().GetDebugger()
+	bps, _ := debugger.Breakpoints()
+	// in dap,only setBreakpoints,no deleteBreakpoints
+	// clear breakpoints
+	for key := range bps {
+		delete(bps, key)
+	}
+	path := request.Arguments.Source.Path
+
+	breakpoints := make([]dap.Breakpoint, 0)
+	// set breakpoints
+	for _, breakpoint := range request.Arguments.Breakpoints {
+		debugger.SetBreakpoint(fileName, breakpoint.Line)
+
+		b := dap.Breakpoint{Line: breakpoint.Line,
+			Source: &dap.Source{Name: filepath.Base(path), Path: path}}
+		breakpoints = append(breakpoints, b)
+	}
+
+	response := &dap.SetBreakpointsResponse{Response: *newResponse(request.Request)}
+	response.Body.Breakpoints = breakpoints
+	s.send(response)
 }
 
 func newResponse(request dap.Request) *dap.Response {
