@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"sync"
 )
@@ -624,11 +625,34 @@ func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
 }
 
 func (s *Session) onEvaluateRequest(request *dap.EvaluateRequest) {
+	showErrorToUser := request.Arguments.Context != "watch" && request.Arguments.Context != "repl" && request.Arguments.Context != "hover"
 	debugger := s.r.GetVm().GetDebugger()
 	if debugger == nil {
-		s.sendErrorResponseWithOpts(request.Request, UnableToEvaluateExpression, "Unable to evaluate expression", "debugger is nil", true)
+		s.sendErrorResponseWithOpts(request.Request, UnableToEvaluateExpression, "Unable to evaluate expression", "debugger is nil", showErrorToUser)
 		return
 	}
+	exprVal, err := debugger.Exec(request.Arguments.Expression)
+	if err != nil {
+		s.sendErrorResponseWithOpts(request.Request, UnableToEvaluateExpression, "Unable to evaluate expression", err.Error(), showErrorToUser)
+		return
+	}
+	response := &dap.EvaluateResponse{Response: *newResponse(request.Request)}
+	response.Body = dap.EvaluateResponseBody{Result: exprVal.String(), Type: exprVal.ExportType().String(),
+		VariablesReference: 0, IndexedVariables: getIndexedVariableCount(exprVal), NamedVariables: 0}
+	s.send(response)
+}
+
+// getIndexedVariableCount returns the number of indexed variables
+// for a DAP variable. For maps this may be less than the actual
+// number of children returned, since a key-value pair may be split
+// into two separate children.
+func getIndexedVariableCount(v goscript.Value) int {
+	indexedVars := 0
+	switch v.ExportType().Kind() {
+	case reflect.Array, reflect.Slice, reflect.Map:
+		//indexedVars = len(v)
+	}
+	return indexedVars
 }
 
 func newResponse(request dap.Request) *dap.Response {
