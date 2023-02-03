@@ -167,6 +167,10 @@ func (s *Session) handleRequest(request dap.Message) {
 	//case *dap.SetFunctionBreakpointsRequest: // Optional (capability ‘supportsFunctionBreakpoints’)
 	//case *dap.SetInstructionBreakpointsRequest: // Optional (capability 'supportsInstructionBreakpoints')
 	//case *dap.SetExceptionBreakpointsRequest: // Optional (capability ‘exceptionBreakpointFilters’)
+
+	// It is automatically sent as part of the threads > stacktrace > scopes > variables
+	// "waterfall" to highlight the topmost frame at stops, after an evaluate request
+	// for the selected scope or when a user selects different scopes in the UI.
 	case *dap.ThreadsRequest: // Required
 		s.onThreadsRequest(request)
 	case *dap.StackTraceRequest: // Required
@@ -316,7 +320,7 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	// 1.check debugger
 	if s.r.GetVm().GetDebugger() != nil {
 		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
-			fmt.Sprintf("debug session already in progress at %s - use remote attach mode to connect to a server with an active debug session", s.address()))
+			fmt.Sprintf("debug session already in progress  - use remote attach mode to connect to a server with an active debug session"))
 		return
 	}
 	// 2.parse LaunchConfig
@@ -544,6 +548,87 @@ func (s *Session) onSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
 	response := &dap.SetBreakpointsResponse{Response: *newResponse(request.Request)}
 	response.Body.Breakpoints = breakpoints
 	s.send(response)
+}
+
+func (s *Session) onThreadsRequest(request *dap.ThreadsRequest) {
+	var threads []dap.Thread
+	// if process not start
+	threads = []dap.Thread{{Id: 1, Name: "Dummy"}}
+
+	// todo fetch thread and goroutine
+	response := &dap.ThreadsResponse{
+		Response: *newResponse(request.Request),
+		Body:     dap.ThreadsResponseBody{Threads: threads},
+	}
+	s.send(response)
+}
+
+func (s *Session) onStackTraceRequest(request *dap.StackTraceRequest) {
+	if s.r.GetVm().GetDebugger() == nil {
+		s.sendErrorResponse(request.Request, UnableToProduceStackTrace, "Unable to produce stack trace", "debugger is nil")
+		return
+	}
+	stackFrames := []dap.StackFrame{} // initialize to empty, since nil is not an accepted response.
+
+	locations := s.prg.Stacktrace()
+	totalFrames := len(locations)
+
+	for _, location := range locations {
+		stackFrame := dap.StackFrame{Id: int(location.PC), Line: location.Line, Name: location.FnName, InstructionPointerReference: fmt.Sprintf("%#x", location.PC)}
+		stackFrames = append(stackFrames, stackFrame)
+	}
+	response := &dap.StackTraceResponse{
+		Response: *newResponse(request.Request),
+		Body:     dap.StackTraceResponseBody{StackFrames: stackFrames, TotalFrames: totalFrames},
+	}
+	s.send(response)
+}
+
+func (s *Session) onScopesRequest(request *dap.ScopesRequest) {
+	//request.Arguments.FrameId
+	// todo find stackFrame by frameId, then Retrieve function/arguments/local variables
+
+	scopes := []dap.Scope{}
+
+	response := &dap.ScopesResponse{
+		Response: *newResponse(request.Request),
+		Body:     dap.ScopesResponseBody{Scopes: scopes},
+	}
+	s.send(response)
+}
+
+func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
+	debugger := s.r.GetVm().GetDebugger()
+	if debugger == nil {
+		s.sendErrorResponseWithOpts(request.Request, UnableToLookupVariable, "Unable to lookup variable", "debugger is nil", true)
+		return
+	}
+	variables, err := debugger.GetGlobalVariables()
+	if err != nil {
+		s.sendErrorResponse(request.Request, UnableToLookupVariable, "Unable to lookup variable", err.Error())
+		return
+	}
+	children := []dap.Variable{} // must return empty array, not null, if no children
+	for name, value := range variables {
+		v := dap.Variable{Name: name,
+			Value: value.String(),
+			Type:  value.ExportType().String()}
+		children = append(children, v)
+	}
+
+	response := &dap.VariablesResponse{
+		Response: *newResponse(request.Request),
+		Body:     dap.VariablesResponseBody{Variables: children},
+	}
+	s.send(response)
+}
+
+func (s *Session) onEvaluateRequest(request *dap.EvaluateRequest) {
+	debugger := s.r.GetVm().GetDebugger()
+	if debugger == nil {
+		s.sendErrorResponseWithOpts(request.Request, UnableToEvaluateExpression, "Unable to evaluate expression", "debugger is nil", true)
+		return
+	}
 }
 
 func newResponse(request dap.Request) *dap.Response {
