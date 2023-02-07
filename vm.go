@@ -336,6 +336,10 @@ type vm struct {
 	debugMode bool
 }
 
+func (v vm) GetDebugger() *Debugger {
+	return v.debugger
+}
+
 type instruction interface {
 	exec(*vm)
 }
@@ -553,7 +557,7 @@ func (vm *vm) init() {
 	vm.maxCallStackSize = math.MaxInt32
 }
 
-func (vm *vm) halted() bool {
+func (vm *vm) Halted() bool {
 	pc := vm.pc
 	return pc < 0 || pc >= len(vm.prg.code)
 }
@@ -838,7 +842,7 @@ func (vm *vm) runTry() (ex *Exception) {
 		} else {
 			ex = vm.runTryInner()
 		}
-		if ex != nil || vm.halted() {
+		if ex != nil || vm.Halted() {
 			return
 		}
 	}

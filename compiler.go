@@ -408,6 +408,49 @@ func (p *Program) defineLiteralValue(val Value) uint32 {
 	return idx
 }
 
+type Location struct {
+	PC     uint64
+	File   string
+	Line   int
+	FnName string
+}
+
+func (p *Program) Stacktrace() []Location {
+	var locations []Location
+
+	for pc, ins := range p.code {
+		var prg *Program
+		switch f := ins.(type) {
+		case *newFunc:
+			prg = f.prg
+		case *newAsyncFunc:
+			prg = f.prg
+		case *newArrowFunc:
+			prg = f.prg
+		case *newAsyncArrowFunc:
+			prg = f.prg
+		case *newMethod:
+			prg = f.prg
+		case *newAsyncMethod:
+			prg = f.prg
+		case *newDerivedClass:
+			prg = f.ctor
+		case *newClass:
+			prg = f.ctor
+		case *newStaticFieldInit:
+		}
+		if prg != nil {
+			locations = append(locations, Location{PC: uint64(pc),
+				//todo 代码所在行数
+				Line:   pc,
+				FnName: prg.funcName.String(),
+				File:   prg.src.Name()})
+		}
+	}
+	return locations
+
+}
+
 func (p *Program) dumpCode(logger func(format string, args ...interface{})) {
 	p._dumpCode("", logger)
 }

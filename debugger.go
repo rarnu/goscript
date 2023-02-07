@@ -202,8 +202,8 @@ func (dbg *Debugger) StepIn() error {
 		dbg.updateCurrentLine()
 		dbg.vm.prg.code[dbg.vm.pc].exec(dbg.vm)
 		dbg.updateLastLine(lastLine)
-	} else if dbg.vm.halted() {
-		return errors.New("halted")
+	} else if dbg.vm.Halted() {
+		return errors.New("Halted")
 	}
 	return nil
 }
@@ -222,9 +222,9 @@ func (dbg *Debugger) Next() error {
 	} else if dbg.getNextLine() == 0 {
 		// Step out of functions
 		return errors.New("exhausted")
-	} else if dbg.vm.halted() {
+	} else if dbg.vm.Halted() {
 		// Step out of program
-		return errors.New("halted")
+		return errors.New("Halted")
 	}
 	return nil
 }
