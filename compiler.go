@@ -433,6 +433,8 @@ func (p *Program) Stacktrace() []Location {
 			prg = f.prg
 		case *newAsyncMethod:
 			prg = f.prg
+		case newFuncInstruction:
+			prg = f.getPrg()
 		case *newDerivedClass:
 			prg = f.ctor
 		case *newClass:
