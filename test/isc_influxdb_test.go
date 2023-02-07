@@ -1,26 +1,32 @@
 package test
 
 import (
-	c0 "context"
-	"fmt"
-	v2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/rarnu/goscript"
-	"github.com/rarnu/goscript/module/console"
-	"github.com/rarnu/goscript/module/require"
-	"testing"
-	"time"
+    c0 "context"
+    "fmt"
+    v2 "github.com/influxdata/influxdb-client-go/v2"
+    http2 "github.com/influxdata/influxdb-client-go/v2/api/http"
+    "github.com/rarnu/goscript"
+    "github.com/rarnu/goscript/module/console"
+    "github.com/rarnu/goscript/module/require"
+    "golang.org/x/net/context"
+    "testing"
 )
+
+const _test_token = "CzUHhQBajU8O7mdLLj4IovzUy8eXf7rjCefqZlR-HwwoC0Tn71lAPJR4QqlzjVbDQ-wl6sZpcXXkD74g7ZLUSg=="
+const _test_token2 = "rarnu:Rarnu1120"
+
 
 func TestInfluxDB(t *testing.T) {
 
-	cli := v2.NewClient("http://10.211.55.23:8086", "BnIerNUMg2Q5JJ7r7hfFwqF73owecYKoqR731vf202JXnJajGQLH7Q9Ti-S4X018QXRRU9WC_ZxzwNHDEndhrQ==")
+    cli := v2.NewClient("http://192.168.236.131:8086", _test_token)
 
 	if cli == nil {
 		return
 	}
 	defer cli.Close()
-	wa := cli.WriteAPI("isyscore", "wms")
+    wa := cli.WriteAPIBlocking("isc", "wms")
 
+    /*
 	wp := v2.NewPoint("stat", map[string]string{
 		"unit": "temperature",
 	}, map[string]any{
@@ -28,22 +34,34 @@ func TestInfluxDB(t *testing.T) {
 		"max": 35.0,
 	}, time.Now())
 	wa.WritePoint(wp)
-	wa.Flush()
+    */
+
+    line := fmt.Sprintf("stat,unit=temperature avg=%f,max=%f", 23.5, 45.0)
+    wa.WriteRecord(context.Background(), line)
+
+    wa.Flush(context.Background())
 }
 
 func TestInfluxDBQuery(t *testing.T) {
-	cli := v2.NewClient("http://10.211.55.23:8086", "BnIerNUMg2Q5JJ7r7hfFwqF73owecYKoqR731vf202JXnJajGQLH7Q9Ti-S4X018QXRRU9WC_ZxzwNHDEndhrQ==")
+	cli := v2.NewClient("http://192.168.236.131:8086", _test_token2)
 	if cli == nil {
 		return
 	}
 	defer cli.Close()
-	qa := cli.QueryAPI("isyscore")
-	query := `from(bucket:"wms")|> range(start: -3h) |> filter(fn: (r) => r._measurement == "stat")`
+	qa := cli.QueryAPI("isc")
+	query := `from(bucket:"wms")|> range(start: -1h) |> filter(fn: (r) => r._measurement == "stat")`
 	result, _ := qa.Query(c0.Background(), query)
+    defer func() {
+        _ = result.Close()
+    }()
+
+    var _data []map[string]any
 
 	for result.Next() {
+        _data = append(_data, result.Record().Values())
 		fmt.Printf("value: %+v\n", result.Record().Values())
 	}
+
 }
 
 func TestInfluxDBScript(t *testing.T) {

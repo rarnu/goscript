@@ -3236,9 +3236,10 @@ func TestObjectLiteralWithNumericKeys(t *testing.T) {
 	var keys1 = Object.keys(o1);
 	var o2 = {1e21: true};
 	var keys2 = Object.keys(o2);
+	let o3 = {0(){return true}};
 	keys.length === 1 && keys[0] === "1000" && 
 	keys1.length === 1 && keys1[0] === "1000" && o1[1e3] === true &&
-	keys2.length === 1 && keys2[0] === "1e+21";
+	keys2.length === 1 && keys2[0] === "1e+21" && o3[0]();
 	`
 	testScript(SCRIPT, valueTrue, t)
 }
@@ -5697,6 +5698,18 @@ func TestClassMethodSpecial(t *testing.T) {
 	testScript(SCRIPT, _undefined, t)
 }
 
+func TestClassMethodNumLiteral(t *testing.T) {
+	const SCRIPT = `
+ 	class C {
+ 		0() {
+ 			return true;
+ 		}
+ 	}
+ 	new C()[0]();
+ 	`
+	testScript(SCRIPT, valueTrue, t)
+}
+
 func TestAsyncFunc(t *testing.T) {
 	const SCRIPT = `
 	async (x = true, y) => {};
@@ -5745,4 +5758,80 @@ func BenchmarkCompile(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestObjectLiteralComputedMethodKeys(t *testing.T) {
+	_, err := Compile("", `
+ 		({
+ 		    ["__proto__"]() {},
+ 		    ["__proto__"]() {}
+ 		})
+ 	`, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Compile("", `
+ 		({
+ 		    get ["__proto__"]() {},
+ 		    get ["__proto__"]() {}
+ 		})
+ 	`, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGeneratorFunc(t *testing.T) {
+	const SCRIPT = `
+ 	let trace = "";
+ 	function defParam() {
+ 		trace += "1";
+ 		return "def";
+ 	}
+ 	function* g(param = defParam()) {
+ 		const THREE = 3;
+ 		trace += "2";
+ 		assert.sameValue(Math.floor(yield 1), THREE);
+ 		return 42;
+ 	}
+ 	let iter = g();
+ 	assert.sameValue(trace, "1");
+
+ 	let next = iter.next();
+ 	assert.sameValue(next.value, 1);
+ 	assert.sameValue(next.done, false);
+
+ 	next = iter.next(Math.PI);
+ 	assert.sameValue(next.value, 42);
+ 	assert.sameValue(next.done, true);
+
+ 	assert.sameValue(trace, "12");
+ 	`
+	testScriptWithTestLib(SCRIPT, _undefined, t)
+}
+
+func TestGeneratorMethods(t *testing.T) {
+	const SCRIPT = `
+ 	class C {
+ 		*g(param) {
+ 			yield 1;
+ 			yield 2;
+ 		}
+ 	}
+ 	let c = new C();
+ 	let iter = c.g();
+ 	let res = iter.next();
+ 	assert.sameValue(res.value, 1);
+ 	assert.sameValue(res.done, false);
+
+ 	res = iter.next();
+ 	assert.sameValue(res.value, 2);
+ 	assert.sameValue(res.done, false);
+
+ 	res = iter.next();
+ 	assert.sameValue(res.value, undefined);
+ 	assert.sameValue(res.done, true);
+ 	`
+	testScriptWithTestLib(SCRIPT, _undefined, t)
 }

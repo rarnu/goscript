@@ -362,8 +362,10 @@ func (dbg *Debugger) eval(expr string) (v Value, err error) {
 
 	defer func() {
 		if x := recover(); x != nil {
-			if ex, ok := x.(*uncatchableException); ok {
-				err = ex.err
+			// if ex, ok := x.(*uncatchableException); ok {
+			// 	err = ex.err
+			if ex := asUncatchableException(x); x != nil {
+				err = ex
 			} else {
 				err = fmt.Errorf("cannot recover from exception %s", x)
 			}

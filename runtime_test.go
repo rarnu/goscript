@@ -211,7 +211,7 @@ func TestRecursiveRun(t *testing.T) {
 	// corruptions occur.
 	vm := New()
 	vm.Set("f", func() (Value, error) {
-		return vm.RunString("let x = 1; { let z = 100, z1 = 200, z2 = 300, z3 = 400; } x;")
+		return vm.RunString("let x = 1; { let z = 100, z1 = 200, z2 = 300, z3 = 400; x = x + z3} x;")
 	})
 	res, err := vm.RunString(`
 	function f1() {
@@ -234,7 +234,7 @@ func TestRecursiveRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.SameAs(valueInt(1)) {
+	if !res.SameAs(valueInt(401)) {
 		t.Fatal(res)
 	}
 }
@@ -2814,5 +2814,136 @@ func BenchmarkAsciiStringMapGet(b *testing.B) {
 		if m[key] == nil {
 			b.Fatal()
 		}
+	}
+}
+
+func TestInterruptInWrappedFunctionExpectInteruptError(t *testing.T) {
+	rt := New()
+	// this test panics as otherwise goja will recover and possibly loop
+	rt.Set("v", rt.ToValue(func() {
+		rt.Interrupt("here is the error")
+	}))
+
+	rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
+		return a(nil)
+	}))
+
+	_, err := rt.RunString(`
+         s(() =>{
+             v();
+         })
+ 	`)
+	if err == nil {
+		t.Fatal("expected error but got no error")
+	}
+	// intErr := new(InterruptedError)
+	var intErr *InterruptedError
+	if !errors.As(err, &intErr) {
+		t.Fatalf("Wrong error type: %T", err)
+	}
+	if !strings.Contains(intErr.Error(), "here is the error") {
+		t.Fatalf("Wrong error message: %q", intErr.Error())
+	}
+}
+
+func TestInterruptInWrappedFunctionExpectStackOverflowError(t *testing.T) {
+	rt := New()
+	rt.SetMaxCallStackSize(5)
+	// this test panics as otherwise goja will recover and possibly loop
+	rt.Set("v", rt.ToValue(func() {
+		_, err := rt.RunString(`
+ 		(function loop() { loop() })();
+ 		`)
+		if err != nil {
+			panic(err)
+		}
+	}))
+
+	rt.Set("s", rt.ToValue(func(a Callable) (Value, error) {
+		return a(nil)
+	}))
+
+	_, err := rt.RunString(`
+         s(() =>{
+             v();
+         })
+ 	`)
+	if err == nil {
+		t.Fatal("expected error but got no error")
+	}
+	var soErr *StackOverflowError
+	if !errors.As(err, &soErr) {
+		t.Fatalf("Wrong error type: %T", err)
+	}
+}
+
+func TestPanicPropagation(t *testing.T) {
+	r := New()
+	r.Set("doPanic", func() {
+		panic(true)
+	})
+	v, err := r.RunString(`(function() {
+ 		doPanic();
+ 	})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, ok := AssertFunction(v)
+	if !ok {
+		t.Fatal("not a function")
+	}
+	defer func() {
+		if x := recover(); x != nil {
+			if x != true {
+				t.Fatal("Invalid panic value")
+			}
+		}
+	}()
+	_, _ = f(nil)
+	t.Fatal("Expected panic")
+}
+
+func TestSuspendResumeStacks(t *testing.T) {
+	const SCRIPT = `
+ async function f1() {
+ 	throw new Error();
+ }
+ async function f() {
+   try {
+ 	await f1();
+   } catch {}
+ }
+
+ result = await f();
+ 	`
+	testAsyncFunc(SCRIPT, _undefined, t)
+}
+
+func TestAwaitInParameters(t *testing.T) {
+	_, err := Compile("", `
+ 	async function g() {
+ 	    async function inner(a = 1 + await 1) {
+ 	    }
+ 	}
+ 	`, false)
+	if err == nil {
+		t.Fatal("Expected error")
+	}
+}
+
+func TestRecursiveRunCallee(t *testing.T) {
+	// Make sure that a recursive call to Run*() correctly sets the callee (i.e. stack[sb-1])
+	vm := New()
+	vm.Set("f", func() (Value, error) {
+		return vm.RunString("this; (() => 1)()")
+	})
+	res, err := vm.RunString(`
+ 		f(123, 123);
+ 	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.SameAs(valueInt(1)) {
+		t.Fatal(res)
 	}
 }

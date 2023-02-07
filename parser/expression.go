@@ -265,6 +265,9 @@ func (self *_parser) isBindingId(tok token.Token) bool {
 	if tok == token.AWAIT {
 		return !self.scope.allowAwait
 	}
+	if tok == token.YIELD {
+		return !self.scope.allowYield
+	}
 	if token.IsUnreservedWord(tok) {
 		return true
 	}
@@ -396,17 +399,31 @@ func (self *_parser) parseObjectProperty() ast.Property {
 		}
 	}
 	keyStartIdx := self.idx
+	generator := false
+	if self.token == token.MULTIPLY {
+		generator = true
+		self.next()
+	}
 	literal, parsedLiteral, value, tkn := self.parseObjectPropertyKey()
 	if value == nil {
 		return nil
 	}
-	if token.IsId(tkn) || tkn == token.STRING || tkn == token.ILLEGAL {
+	if token.IsId(tkn) || tkn == token.STRING || tkn == token.NUMBER || tkn == token.ILLEGAL {
+		if generator {
+			return &ast.PropertyKeyed{
+				Key:      value,
+				Kind:     ast.PropertyKindMethod,
+				Value:    self.parseMethodDefinition(keyStartIdx, ast.PropertyKindMethod, true, false),
+				Computed: tkn == token.ILLEGAL,
+			}
+		}
 		switch {
 		case self.token == token.LEFT_PARENTHESIS:
 			return &ast.PropertyKeyed{
-				Key:   value,
-				Kind:  ast.PropertyKindMethod,
-				Value: self.parseMethodDefinition(keyStartIdx, ast.PropertyKindMethod, false),
+				Key:      value,
+				Kind:     ast.PropertyKindMethod,
+				Value:    self.parseMethodDefinition(keyStartIdx, ast.PropertyKindMethod, false, false),
+				Computed: tkn == token.ILLEGAL,
 			}
 		case self.token == token.COMMA || self.token == token.RIGHT_BRACE || self.token == token.ASSIGN: // shorthand property
 			if self.isBindingId(tkn) {
@@ -428,7 +445,7 @@ func (self *_parser) parseObjectProperty() ast.Property {
 				self.errorUnexpectedToken(self.token)
 			}
 		case (literal == "get" || literal == "set" || tkn == token.ASYNC) && self.token != token.COLON:
-			_, _, keyValue, _ := self.parseObjectPropertyKey()
+			_, _, keyValue, tkn1 := self.parseObjectPropertyKey()
 			if keyValue == nil {
 				return nil
 			}
@@ -445,9 +462,10 @@ func (self *_parser) parseObjectProperty() ast.Property {
 			}
 
 			return &ast.PropertyKeyed{
-				Key:   keyValue,
-				Kind:  kind,
-				Value: self.parseMethodDefinition(keyStartIdx, kind, async),
+				Key:      keyValue,
+				Kind:     kind,
+				Value:    self.parseMethodDefinition(keyStartIdx, kind, false, async),
+				Computed: tkn1 == token.ILLEGAL,
 			}
 		}
 	}
@@ -461,8 +479,14 @@ func (self *_parser) parseObjectProperty() ast.Property {
 	}
 }
 
-func (self *_parser) parseMethodDefinition(keyStartIdx file.Idx, kind ast.PropertyKind, async bool) *ast.FunctionLiteral {
+func (self *_parser) parseMethodDefinition(keyStartIdx file.Idx, kind ast.PropertyKind, generator, async bool) *ast.FunctionLiteral {
 	idx1 := self.idx
+	if generator != self.scope.allowYield {
+		self.scope.allowYield = generator
+		defer func() {
+			self.scope.allowYield = !generator
+		}()
+	}
 	if async != self.scope.allowAwait {
 		self.scope.allowAwait = async
 		defer func() {
@@ -483,9 +507,10 @@ func (self *_parser) parseMethodDefinition(keyStartIdx file.Idx, kind ast.Proper
 	node := &ast.FunctionLiteral{
 		Function:      keyStartIdx,
 		ParameterList: parameterList,
+		Generator:     generator,
 		Async:         async,
 	}
-	node.Body, node.DeclarationList = self.parseFunctionBlock(async, async)
+	node.Body, node.DeclarationList = self.parseFunctionBlock(async, async, generator)
 	node.Source = self.slice(keyStartIdx, node.Body.Idx1())
 	return node
 }
@@ -849,6 +874,9 @@ func (self *_parser) parseUnaryExpression() ast.Expression {
 					To:   self.idx,
 				}
 			}
+			if self.scope.inFuncParams {
+				self.error(idx, "Illegal await-expression in formal parameters of async function")
+			}
 			return &ast.AwaitExpression{
 				Await:    idx,
 				Argument: self.parseUnaryExpression(),
@@ -1140,7 +1168,10 @@ func (self *_parser) parseConditionalExpression() ast.Expression {
 
 	if self.token == token.QUESTION_MARK {
 		self.next()
+		allowIn := self.scope.allowIn
+		self.scope.allowIn = true
 		consequent := self.parseAssignmentExpression()
+		self.scope.allowIn = allowIn
 		self.expect(token.COLON)
 		return &ast.ConditionalExpression{
 			Test:       left,
@@ -1213,6 +1244,11 @@ func (self *_parser) parseAssignmentExpression() ast.Expression {
 			self.mark(&state)
 			async = true
 		}
+	case token.YIELD:
+		if self.scope.allowYield {
+			return self.parseYieldExpression()
+		}
+		fallthrough
 	default:
 		self.tokenToBindingId()
 	}
@@ -1314,6 +1350,36 @@ func (self *_parser) parseAssignmentExpression() ast.Expression {
 	}
 
 	return left
+}
+
+func (self *_parser) parseYieldExpression() ast.Expression {
+	idx := self.expect(token.YIELD)
+
+	if self.scope.inFuncParams {
+		self.error(idx, "Yield expression not allowed in formal parameter")
+	}
+
+	node := &ast.YieldExpression{
+		Yield: idx,
+	}
+
+	if !self.implicitSemicolon && self.token == token.MULTIPLY {
+		node.Delegate = true
+		self.next()
+	}
+
+	if !self.implicitSemicolon && self.token != token.SEMICOLON && self.token != token.RIGHT_BRACE && self.token != token.EOF {
+		var state parserState
+		self.mark(&state)
+		expr := self.parseAssignmentExpression()
+		if _, bad := expr.(*ast.BadExpression); bad {
+			expr = nil
+			self.restore(&state)
+		}
+		node.Argument = expr
+	}
+
+	return node
 }
 
 func (self *_parser) parseExpression() ast.Expression {
