@@ -1024,7 +1024,7 @@ func (g *generatorObject) _return(v Value) Value {
 					vm.popTryFrame()
 					break
 				}
-				if vm.halted() {
+				if vm.Halted() {
 					break
 				}
 			}
