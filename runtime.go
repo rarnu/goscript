@@ -221,7 +221,7 @@ type Runtime struct {
 	asyncContextTracker     AsyncContextTracker
 }
 
-func (r Runtime) GetVm() *vm {
+func (r *Runtime) GetVm() *vm {
 	return r.vm
 }
 
