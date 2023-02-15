@@ -8,7 +8,6 @@ import (
 	"github.com/rarnu/goscript"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"runtime/debug"
 	"sync"
@@ -29,31 +28,6 @@ type Session struct {
 
 	r   *goscript.Runtime
 	prg *goscript.Program
-}
-
-func debugRun() error {
-	s := NewSession(nil, &Config{})
-
-	// receive command from terminal
-	commandCh := make(chan string)
-
-	for command := range commandCh {
-		request, err := dap.DecodeProtocolMessage([]byte(command))
-		if err != nil {
-			return err
-		}
-		// dap.LaunchRequest => go s.r.compile("")
-		// dap.AttachRequest => new debugger
-
-		// send response to terminal
-		//if err = s.handleRequest(request); err != nil {
-		//	// stop script
-		//	return err
-		//}
-	}
-	// stop script
-
-	return nil
 }
 
 func NewSession(conn io.ReadWriteCloser, config *Config) *Session {
@@ -126,9 +100,9 @@ func (s *Session) handleRequest(request dap.Message) {
 		s.sendInternalErrorResponse(request.GetSeq(), fmt.Sprintf("Unable to process non-request %#v\n", request))
 		return
 	}
-	if s.checkNoDebug(request) {
-		return
-	}
+	//if s.checkNoDebug(request) {
+	//	return
+	//}
 	switch request := request.(type) {
 	case *dap.InitializeRequest: // Required
 		// init Runtime
@@ -178,6 +152,7 @@ func (s *Session) handleRequest(request dap.Message) {
 		s.onStackTraceRequest(request)
 	case *dap.ScopesRequest: // Required
 		s.onScopesRequest(request)
+
 	case *dap.VariablesRequest: // Required
 		s.onVariablesRequest(request)
 	case *dap.EvaluateRequest: // Required
@@ -259,6 +234,9 @@ func (s Session) Close() {
 
 func (s *Session) checkNoDebug(request dap.Message) bool {
 	//if debug return false
+	if s.r != nil && s.r.GetVm().GetDebugger() != nil {
+		return false
+	}
 
 	switch request := request.(type) {
 	case *dap.DisconnectRequest:
@@ -356,8 +334,7 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	// 4.check config (only support debug currently)
 	if args.Mode == "" {
 		args.Mode = "debug"
-	}
-	if args.Mode != "debug" {
+	} else if args.Mode != "debug" {
 		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
 			fmt.Sprintf("invalid debug configuration - unsupported 'mode' attribute %q", args.Mode))
 		return
@@ -388,6 +365,7 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 
 		// Start the program on a different goroutine, so we can listen for disconnect request.
 		go func() {
+			//todo 返回值
 			if _, err := s.r.RunProgram(s.prg); err != nil {
 				s.config.log.Debugf("program exited with error: %v", err)
 			}
@@ -539,10 +517,15 @@ func (s *Session) onSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
 	breakpoints := make([]dap.Breakpoint, 0)
 	// set breakpoints
 	for _, breakpoint := range request.Arguments.Breakpoints {
-		debugger.SetBreakpoint(fileName, breakpoint.Line)
+		err := debugger.SetBreakpoint(fileName, breakpoint.Line)
+		if err != nil {
+			return
+		}
 
 		b := dap.Breakpoint{Line: breakpoint.Line,
-			Source: &dap.Source{Name: filepath.Base(path), Path: path}}
+			Source: &dap.Source{
+				Name: fileName,
+				Path: path}}
 		breakpoints = append(breakpoints, b)
 	}
 
