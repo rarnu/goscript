@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	gitee.com/chunanyong/dm v1.8.10
-	github.com/denisenkom/go-mssqldb v0.12.3
 	github.com/dlclark/regexp2 v1.7.0
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
@@ -13,6 +12,7 @@ require (
 	github.com/influxdata/influxdb-client-go/v2 v2.12.1
 	github.com/isyscore/isc-gobase v1.5.0
 	github.com/mattn/go-sqlite3 v1.14.16
+	github.com/microsoft/go-mssqldb v0.17.0
 	github.com/sijms/go-ora/v2 v2.5.21
 	github.com/sirupsen/logrus v1.6.0
 	go.etcd.io/etcd/client/v3 v3.5.6
