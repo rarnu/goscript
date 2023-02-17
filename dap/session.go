@@ -356,6 +356,7 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 			return
 		}
 		s.prg = prg
+		s.r.GetVm().SetProgram(prg)
 	}
 	// 6.start if noDebug
 	if args.NoDebug {
@@ -433,7 +434,11 @@ func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
 		Response: *newResponse(request.Request),
 		Body:     dap.ContinueResponseBody{AllThreadsContinued: true}})
 
-	stopReason := s.r.GetVm().GetDebugger().Continue()
+	vm := s.r.GetVm()
+	// todo when to start
+	go vm.Debug()
+
+	stopReason := vm.GetDebugger().Continue()
 
 	if s.r.GetVm().Halted() {
 		s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
@@ -506,11 +511,17 @@ func (s *Session) onSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
 		return
 	}
 	debugger := s.r.GetVm().GetDebugger()
+	if debugger == nil {
+		s.sendErrorResponse(request.Request, UnableToSetBreakpoints, "Unable to set or clear breakpoints", "debugger not start")
+		return
+	}
 	bps, _ := debugger.Breakpoints()
 	// in dap,only setBreakpoints,no deleteBreakpoints
 	// clear breakpoints
-	for key := range bps {
-		delete(bps, key)
+	if bps != nil {
+		for key := range bps {
+			delete(bps, key)
+		}
 	}
 	path := request.Arguments.Source.Path
 
@@ -594,9 +605,11 @@ func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
 	}
 	children := []dap.Variable{} // must return empty array, not null, if no children
 	for name, value := range variables {
-		v := dap.Variable{Name: name,
-			Value: value.String(),
-			Type:  value.ExportType().String()}
+		v := dap.Variable{Name: name, Value: value.String()}
+		// maybe undefined
+		if value.ExportType() != nil {
+			v.Type = value.ExportType().String()
+		}
 		children = append(children, v)
 	}
 

@@ -336,8 +336,12 @@ type vm struct {
 	debugMode bool
 }
 
-func (v vm) GetDebugger() *Debugger {
+func (v *vm) GetDebugger() *Debugger {
 	return v.debugger
+}
+
+func (v *vm) SetProgram(prg *Program) {
+	v.prg = prg
 }
 
 type instruction interface {
@@ -589,6 +593,9 @@ func (vm *vm) run() {
 	}
 }
 
+func (vm *vm) Debug() {
+	vm.debug()
+}
 func (vm *vm) debug() {
 	interrupted := false
 	ticks := 0

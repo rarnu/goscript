@@ -3,6 +3,8 @@ package dap
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/google/go-dap"
 	"net"
 	"sync/atomic"
@@ -14,21 +16,56 @@ func newClient(address string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn, reader: bufio.NewReader(conn)}, nil
+	c := &Client{conn: conn,
+		reader:   bufio.NewReader(conn),
+		readChan: make(chan ReadBody)}
+	go c.Read()
+	return c, nil
 }
 
 type Client struct {
-	conn   net.Conn
-	reader *bufio.Reader
-	seq    atomic.Int32
+	conn     net.Conn
+	reader   *bufio.Reader
+	seq      atomic.Int32
+	readChan chan ReadBody
 }
 
+type ReadBody struct {
+	err   error
+	bytes []byte
+}
+
+func (c *Client) Read() {
+	for {
+		c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		b, err := dap.ReadBaseMessage(c.reader)
+		if err != nil {
+			c.readChan <- ReadBody{
+				err:   err,
+				bytes: nil,
+			}
+		} else {
+			var msg dap.ProtocolMessage
+			if err := json.Unmarshal(b, &msg); err == nil {
+				if msg.Type == "response" {
+					c.readChan <- ReadBody{
+						err:   nil,
+						bytes: b,
+					}
+				} else {
+					fmt.Println(string(b))
+				}
+			}
+		}
+	}
+}
 func (c *Client) Close() error {
 	if c.conn == nil {
 		return nil
 	}
 	return c.conn.Close()
 }
+
 func (c *Client) sendAndReceive(req dap.RequestMessage, res any) error {
 	request := req.GetRequest()
 	request.Type = "request"
@@ -44,15 +81,18 @@ func (c *Client) sendAndReceive(req dap.RequestMessage, res any) error {
 		return err
 	}
 
-	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	//todo 读取到事件event
-	b1, err := dap.ReadBaseMessage(c.reader)
-	if err != nil {
-		return err
+	select {
+	case <-time.NewTimer(5 * time.Second).C:
+		return errors.New(" 5s read time out")
+	case readBody := <-c.readChan:
+		if readBody.err != nil {
+			return err
+		}
+		if err = json.Unmarshal(readBody.bytes, res); err != nil {
+			return err
+		}
 	}
-	if err = json.Unmarshal(b1, res); err != nil {
-		return err
-	}
+
 	return nil
 }
 func (c *Client) Initialize(req *dap.InitializeRequest) (*dap.InitializeResponse, error) {
