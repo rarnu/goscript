@@ -436,9 +436,10 @@ func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
 
 	vm := s.r.GetVm()
 	// todo when to start
-	go vm.Debug()
+	vm.Debug()
 
-	stopReason := vm.GetDebugger().Continue()
+	debugger := vm.GetDebugger()
+	stopReason := debugger.Continue()
 
 	if s.r.GetVm().Halted() {
 		s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
@@ -448,6 +449,7 @@ func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
 	stopped := &dap.StoppedEvent{Event: *newEvent("stopped")}
 	stopped.Body.AllThreadsStopped = true
 	stopped.Body.Reason = string(stopReason)
+	stopped.Body.Description = fmt.Sprintf("line %d", debugger.Line())
 	s.send(stopped)
 }
 

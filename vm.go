@@ -334,6 +334,8 @@ type vm struct {
 
 	debugger  *Debugger
 	debugMode bool
+
+	started bool
 }
 
 func (v *vm) GetDebugger() *Debugger {
@@ -594,7 +596,11 @@ func (vm *vm) run() {
 }
 
 func (vm *vm) Debug() {
-	vm.debug()
+	if vm.started {
+		return
+	}
+	vm.started = true
+	go vm.debug()
 }
 func (vm *vm) debug() {
 	interrupted := false
