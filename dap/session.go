@@ -27,8 +27,9 @@ type Session struct {
 	// and stopped on teardown (from main goroutine)
 	mu sync.Mutex
 
-	r   *goscript.Runtime
-	prg *goscript.Program
+	r        *goscript.Runtime
+	debugger *goscript.Debugger
+	prg      *goscript.Program
 }
 
 func NewSession(conn io.ReadWriteCloser, config *Config) *Session {
@@ -115,7 +116,6 @@ func (s *Session) handleRequest(request dap.Message) {
 		s.onLaunchRequest(request)
 	case *dap.AttachRequest: // Required
 		// record ProcessID
-		// init debugger
 		s.onAttachRequest(request)
 	case *dap.DisconnectRequest: // Required
 		s.onDisconnectRequest(request)
@@ -235,7 +235,7 @@ func (s Session) Close() {
 
 func (s *Session) checkNoDebug(request dap.Message) bool {
 	//if debug return false
-	if s.r != nil && s.r.GetVm().GetDebugger() != nil {
+	if s.r != nil && s.debugger != nil {
 		return false
 	}
 
@@ -298,7 +298,7 @@ func (s *Session) onInitializeRequest(request *dap.InitializeRequest) {
 
 func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	// 1.check debugger
-	if s.r.GetVm().GetDebugger() != nil {
+	if s.debugger != nil {
 		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
 			fmt.Sprintf("debug session already in progress  - use remote attach mode to connect to a server with an active debug session"))
 		return
@@ -312,10 +312,10 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	}
 	s.config.log.Debug("parsed launch config: ", prettyPrint(args))
 	// 3.change working dir and env
-	if args.DlvCwd != "" {
-		if err := os.Chdir(args.DlvCwd); err != nil {
+	if args.FilePath != "" {
+		if err := os.Chdir(args.FilePath); err != nil {
 			s.sendShowUserErrorResponse(request.Request,
-				FailedToLaunch, "Failed to launch", fmt.Sprintf("failed to chdir to %q - %v", args.DlvCwd, err))
+				FailedToLaunch, "Failed to launch", fmt.Sprintf("failed to chdir to %q - %v", args.FilePath, err))
 			return
 		}
 	}
@@ -344,13 +344,20 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 	// 5.build js file
 	filename := args.Program
 	if args.Mode == "debug" { //  || args.Mode == "test"
-		src, err := os.ReadFile(filename)
-		if err != nil {
-			s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
-				fmt.Sprintf("cannot read js file,err = %v", err))
-			return
+		src := ""
+		if args.Script != "" {
+			src = args.Script
+		} else {
+			b, err := os.ReadFile(filename)
+			if err != nil {
+				s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
+					fmt.Sprintf("cannot read js file,err = %v", err))
+				return
+			}
+			src = string(b)
 		}
-		prg, err := goscript.Compile(filename, string(src), false)
+
+		prg, err := goscript.Compile(filename, src, false)
 		if err != nil {
 			s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch",
 				fmt.Sprintf("Compile err = %v", err))
@@ -372,7 +379,6 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 				s.config.log.Debugf("program exited with error: %v", err)
 			}
 			//close(s.noDebugProcess.exited)
-			//s.logToConsole(proc.ErrProcessExited{Pid: cmd.ProcessState.Pid(), Status: cmd.ProcessState.ExitCode()}.Error())
 			s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
 		}()
 		return
@@ -382,8 +388,7 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 		s.mu.Lock()
 		defer s.mu.Unlock() // Make sure to unlock in case of panic that will become internal error
 
-		//s.debugger, err = debugger.New(&s.config.Debugger, s.config.ProcessArgs)
-		s.r.AttachDebugger()
+		s.debugger = s.r.AttachDebugger()
 	}()
 	if err != nil {
 		s.sendShowUserErrorResponse(request.Request, FailedToLaunch, "Failed to launch", err.Error())
@@ -405,7 +410,6 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 //   - "remote" -- attaches client to a debugger already attached to a process.
 //     Required args: none (host/port are used externally to connect)
 func (s *Session) onAttachRequest(request *dap.AttachRequest) {
-	// 没理解做啥用
 }
 
 func (s *Session) onDisconnectRequest(request *dap.DisconnectRequest) {
@@ -421,9 +425,13 @@ func (s *Session) onDisconnectRequest(request *dap.DisconnectRequest) {
 	}
 	s.config.log.Warnf("client %s disConnect", ip)
 
+	if s.debugger != nil {
+		s.debugger.Detach()
+	}
 	s.conn.Close()
 
 	s.r = nil
+	s.debugger = nil
 	s.prg = nil
 }
 
@@ -464,7 +472,7 @@ func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
 func (s *Session) onNextRequest(request *dap.NextRequest) {
 	s.sendStepResponse(request.Arguments.ThreadId, &dap.NextResponse{Response: *newResponse(request.Request)})
 
-	err := s.r.GetVm().GetDebugger().Next()
+	err := s.debugger.Next()
 	if err != nil {
 		s.config.log.Errorf("Error next: %v", err)
 		// If we encounter an error, we will have to send a stopped event
@@ -482,7 +490,7 @@ func (s *Session) onNextRequest(request *dap.NextRequest) {
 func (s *Session) onStepInRequest(request *dap.StepInRequest) {
 	s.sendStepResponse(request.Arguments.ThreadId, &dap.StepInResponse{Response: *newResponse(request.Request)})
 
-	if err := s.r.GetVm().GetDebugger().StepIn(); err != nil {
+	if err := s.debugger.StepIn(); err != nil {
 		s.config.log.Errorf("Error next: %v", err)
 		// If we encounter an error, we will have to send a stopped event
 		// since we already sent the step response.
@@ -520,7 +528,7 @@ func (s *Session) onSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
 		s.sendErrorResponse(request.Request, UnableToSetBreakpoints, "Unable to set or clear breakpoints", "empty file path")
 		return
 	}
-	debugger := s.r.GetVm().GetDebugger()
+	debugger := s.debugger
 	if debugger == nil {
 		s.sendErrorResponse(request.Request, UnableToSetBreakpoints, "Unable to set or clear breakpoints", "debugger not start")
 		return
@@ -569,7 +577,7 @@ func (s *Session) onThreadsRequest(request *dap.ThreadsRequest) {
 }
 
 func (s *Session) onStackTraceRequest(request *dap.StackTraceRequest) {
-	if s.r.GetVm().GetDebugger() == nil {
+	if s.debugger == nil {
 		s.sendErrorResponse(request.Request, UnableToProduceStackTrace, "Unable to produce stack trace", "debugger is nil")
 		return
 	}
@@ -603,7 +611,7 @@ func (s *Session) onScopesRequest(request *dap.ScopesRequest) {
 }
 
 func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
-	debugger := s.r.GetVm().GetDebugger()
+	debugger := s.debugger
 	if debugger == nil {
 		s.sendErrorResponseWithOpts(request.Request, UnableToLookupVariable, "Unable to lookup variable", "debugger is nil", true)
 		return
@@ -632,7 +640,7 @@ func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
 
 func (s *Session) onEvaluateRequest(request *dap.EvaluateRequest) {
 	showErrorToUser := request.Arguments.Context != "watch" && request.Arguments.Context != "repl" && request.Arguments.Context != "hover"
-	debugger := s.r.GetVm().GetDebugger()
+	debugger := s.debugger
 	if debugger == nil {
 		s.sendErrorResponseWithOpts(request.Request, UnableToEvaluateExpression, "Unable to evaluate expression", "debugger is nil", showErrorToUser)
 		return

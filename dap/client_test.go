@@ -7,11 +7,31 @@ import (
 	"testing"
 )
 
-func Test_newClient(t *testing.T) {
-	fileName := "test.js"
-	filePath := "D:\\code\\goscript\\dap\\script"
+const SERVER_ADDRESS = "0.0.0.0:6666"
 
-	c, err := newClient("0.0.0.0:6666")
+func Test_newClientWithScript(t *testing.T) {
+	fileName := "test.js"
+	const SCRIPT = `
+var g_a = 1;
+var g_b = "abc";
+var g_c = null;
+var g_d = false;
+var g_e = [1, 2];
+var g_f = {a: 'foo', b: 42, c: {}};
+
+function f1() {
+	let a = 1;
+	let b = "abc";
+	let c = null;
+	let d = false;
+	let e = [1, 2];
+	let f = {a: 'foo', b: 42, c: {}};
+	a++;
+	return 1;
+}
+f1();
+`
+	c, err := newClient(SERVER_ADDRESS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +47,52 @@ func Test_newClient(t *testing.T) {
 
 	initialize(t, c)
 
-	launch(t, filePath, fileName, c)
+	launch(t, "", fileName, SCRIPT, c)
+
+	setBreakpoints(t, fileName, "", []int{2, 3, 5}, c)
+	// stop at 【breakpoint line 2】
+	onContinue(t, c)
+	// stop at 【breakpoint line 3】
+	onContinue(t, c)
+	// stop at 【breakpoint line 5】
+	onContinue(t, c)
+
+	variables(t, c)
+	// result = true
+	evaluate(t, "g_a == 1", c)
+	// result = false
+	evaluate(t, "g_a == 2", c)
+	// = step over
+	next(t, c)
+
+	stepIn(t, c)
+
+	onDisconnect(t, c)
+
+	t.Log("end!")
+}
+
+func Test_newClientWithFilePath(t *testing.T) {
+	fileName := "test.js"
+	filePath := "D:\\code\\goscript\\dap\\script"
+
+	c, err := newClient(SERVER_ADDRESS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.msgChan = make(chan string)
+	go func() {
+		for {
+			msg := <-c.msgChan
+			t.Log(msg)
+		}
+	}()
+
+	defer c.Close()
+
+	initialize(t, c)
+
+	launch(t, filePath, fileName, "", c)
 
 	setBreakpoints(t, fileName, filePath, []int{2, 3, 5}, c)
 	// stop at 【breakpoint line 2】
@@ -77,15 +142,16 @@ func variables(t *testing.T, c *Client) {
 	print("variablesResponse", variablesResponse, err, t)
 
 	//b, _ := json.Marshal(variablesResponse.Body.Variables)
-	//t.Log("result :" + string(b))
-	t.Logf("result size : %d", len(variablesResponse.Body.Variables))
+	//t.Log("variables :" + string(b))
+	t.Logf("variables size : %d", len(variablesResponse.Body.Variables))
 }
 
-func launch(t *testing.T, filePath string, fileName string, c *Client) {
+func launch(t *testing.T, filePath string, fileName string, script string, c *Client) {
 	args := LaunchConfig{
-		DlvCwd:  filePath,
-		Program: fileName,
-		NoDebug: false} //true=直接启动
+		FilePath: filePath,
+		Program:  fileName,
+		Script:   script,
+		NoDebug:  false} //true=直接启动
 	b, _ := json.Marshal(args)
 	launchRequest := &dap.LaunchRequest{Arguments: b}
 	launchResponse, err := c.Launch(launchRequest)
