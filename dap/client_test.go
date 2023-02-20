@@ -3,7 +3,6 @@ package dap
 import (
 	"encoding/json"
 	"github.com/google/go-dap"
-	"strconv"
 	"testing"
 )
 
@@ -205,11 +204,12 @@ func print(prefix string, data any, err error, t *testing.T) {
 	if err != nil {
 		t.Log(prefix + ": " + err.Error())
 	} else {
-		if b, err := json.Marshal(data); err != nil {
+		if _, err := json.Marshal(data); err != nil {
 			t.Log(err.Error())
 		} else {
+			t.Log("  【" + prefix + "】")
+			//t.Log("  【" + prefix + " size】: " + strconv.Itoa(len(b)))
 			//t.Log("  【" + prefix + "】: " + string(b))
-			t.Log("  【" + prefix + " size】: " + strconv.Itoa(len(b)))
 		}
 	}
 }
