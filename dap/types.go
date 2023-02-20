@@ -148,8 +148,8 @@ type LaunchConfig struct {
 	// reference to other environment variables is not supported.
 	Env map[string]*string `json:"env,omitempty"`
 
-	Script   string
-	FilePath string
+	Script   string `json:"script,omitempty"`
+	FilePath string `json:"filePath,omitempty"`
 
 	LaunchAttachCommonConfig
 }

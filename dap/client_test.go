@@ -8,9 +8,7 @@ import (
 
 const SERVER_ADDRESS = "0.0.0.0:6666"
 
-func Test_newClientWithScript(t *testing.T) {
-	fileName := "test.js"
-	const SCRIPT = `
+const SCRIPT = `
 var g_a = 1;
 var g_b = "abc";
 var g_c = null;
@@ -30,6 +28,10 @@ function f1() {
 }
 f1();
 `
+
+func Test_newClientWithScript(t *testing.T) {
+	fileName := "test.js"
+
 	c, err := newClient(SERVER_ADDRESS)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +93,7 @@ func Test_newClientWithFilePath(t *testing.T) {
 
 	initialize(t, c)
 
-	launch(t, filePath, fileName, "", c)
+	launch(t, filePath, fileName, SCRIPT, c)
 
 	setBreakpoints(t, fileName, filePath, []int{2, 3, 5}, c)
 	// stop at 【breakpoint line 2】
