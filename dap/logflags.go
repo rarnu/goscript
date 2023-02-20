@@ -26,7 +26,7 @@ func makeLogger(flag bool, fields logrus.Fields) *logrus.Entry {
 	}
 	logger.Logger.Level = logrus.DebugLevel
 	if !flag {
-		logger.Logger.Level = logrus.ErrorLevel
+		logger.Logger.Level = logrus.InfoLevel
 	}
 	return logger
 }

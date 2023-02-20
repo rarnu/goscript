@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/google/go-dap"
 	"net"
 	"sync/atomic"
@@ -28,6 +27,7 @@ type Client struct {
 	reader   *bufio.Reader
 	seq      atomic.Int32
 	readChan chan ReadBody
+	msgChan  chan string
 }
 
 type ReadBody struct {
@@ -52,8 +52,15 @@ func (c *Client) Read() {
 						err:   nil,
 						bytes: b,
 					}
+				} else if msg.Type == "event" {
+					event := "【event】: " + string(b)
+					if c.msgChan != nil {
+						c.msgChan <- event
+					}
 				} else {
-					fmt.Println(string(b))
+					if c.msgChan != nil {
+						c.msgChan <- string(b)
+					}
 				}
 			}
 		}
@@ -163,6 +170,14 @@ func (c *Client) OnVariables(req *dap.VariablesRequest) (*dap.VariablesResponse,
 func (c *Client) Evaluate(req *dap.EvaluateRequest) (*dap.EvaluateResponse, error) {
 	req.Command = "evaluate"
 	var res = &dap.EvaluateResponse{}
+	if err := c.sendAndReceive(req, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+func (c *Client) OnDisconnectRequest(req *dap.DisconnectRequest) (*dap.DisconnectResponse, error) {
+	req.Command = "disconnect"
+	var res = &dap.DisconnectResponse{}
 	if err := c.sendAndReceive(req, res); err != nil {
 		return nil, err
 	}

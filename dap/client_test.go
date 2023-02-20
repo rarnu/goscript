@@ -2,8 +2,8 @@ package dap
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/google/go-dap"
+	"strconv"
 	"testing"
 )
 
@@ -15,6 +15,14 @@ func Test_newClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.msgChan = make(chan string)
+	go func() {
+		for {
+			msg := <-c.msgChan
+			t.Log(msg)
+		}
+	}()
+
 	defer c.Close()
 
 	initialize(t, c)
@@ -24,14 +32,24 @@ func Test_newClient(t *testing.T) {
 	setBreakpoints(t, fileName, filePath, []int{2, 3, 5}, c)
 	// stop at 【breakpoint line 2】
 	onContinue(t, c)
+	// stop at 【breakpoint line 3】
+	onContinue(t, c)
+	// stop at 【breakpoint line 5】
+	onContinue(t, c)
 
 	variables(t, c)
-	// result = 1
-	evaluate(t, "g_a = 1", c)
+	// result = true
+	evaluate(t, "g_a == 1", c)
+	// result = false
+	evaluate(t, "g_a == 2", c)
 	// = step over
-	//next(t, c)
+	next(t, c)
 
-	//stepIn(t, c)
+	stepIn(t, c)
+
+	onDisconnect(t, c)
+
+	t.Log("end!")
 }
 
 func stepIn(t *testing.T, c *Client) {
@@ -50,12 +68,17 @@ func evaluate(t *testing.T, expression string, c *Client) {
 	evaluateRequest := &dap.EvaluateRequest{Arguments: dap.EvaluateArguments{Expression: expression}}
 	evaluateResponse, err := c.Evaluate(evaluateRequest)
 	print("evaluateResponse", evaluateResponse, err, t)
+	t.Log("expression: " + expression + ", result :" + evaluateResponse.Body.Result)
 }
 
 func variables(t *testing.T, c *Client) {
 	variablesRequest := &dap.VariablesRequest{}
 	variablesResponse, err := c.OnVariables(variablesRequest)
 	print("variablesResponse", variablesResponse, err, t)
+
+	//b, _ := json.Marshal(variablesResponse.Body.Variables)
+	//t.Log("result :" + string(b))
+	t.Logf("result size : %d", len(variablesResponse.Body.Variables))
 }
 
 func launch(t *testing.T, filePath string, fileName string, c *Client) {
@@ -106,14 +129,21 @@ func onContinue(t *testing.T, c *Client) {
 	print("continueResponse", continueResponse, err, t)
 }
 
+func onDisconnect(t *testing.T, c *Client) {
+	disconnectRequest := &dap.DisconnectRequest{}
+	disconnectResponse, err := c.OnDisconnectRequest(disconnectRequest)
+	print("disconnectResponse", disconnectResponse, err, t)
+}
+
 func print(prefix string, data any, err error, t *testing.T) {
 	if err != nil {
-		fmt.Println(prefix + ": " + err.Error())
+		t.Log(prefix + ": " + err.Error())
 	} else {
 		if b, err := json.Marshal(data); err != nil {
-			fmt.Println(err.Error())
+			t.Log(err.Error())
 		} else {
-			fmt.Println("【" + prefix + "】: " + string(b))
+			//t.Log("  【" + prefix + "】: " + string(b))
+			t.Log("  【" + prefix + " size】: " + strconv.Itoa(len(b)))
 		}
 	}
 }

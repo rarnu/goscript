@@ -595,7 +595,7 @@ func (vm *vm) run() {
 	}
 }
 
-func (vm *vm) Debug() {
+func (vm *vm) DebugStart() {
 	if vm.started {
 		return
 	}

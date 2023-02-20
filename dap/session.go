@@ -7,6 +7,7 @@ import (
 	"github.com/google/go-dap"
 	"github.com/rarnu/goscript"
 	"io"
+	"net"
 	"os"
 	"reflect"
 	"runtime/debug"
@@ -413,6 +414,13 @@ func (s *Session) onDisconnectRequest(request *dap.DisconnectRequest) {
 
 	s.send(&dap.DisconnectResponse{Response: *newResponse(request.Request)})
 	s.send(&dap.TerminatedEvent{Event: *newEvent("terminated")})
+
+	ip := ""
+	if c, ok := s.conn.ReadWriteCloser.(net.Conn); ok {
+		ip = c.RemoteAddr().String()
+	}
+	s.config.log.Warnf("client %s disConnect", ip)
+
 	s.conn.Close()
 
 	s.r = nil
@@ -435,8 +443,8 @@ func (s *Session) onContinueRequest(request *dap.ContinueRequest) {
 		Body:     dap.ContinueResponseBody{AllThreadsContinued: true}})
 
 	vm := s.r.GetVm()
-	// todo when to start
-	vm.Debug()
+	// start if not
+	vm.DebugStart()
 
 	debugger := vm.GetDebugger()
 	stopReason := debugger.Continue()

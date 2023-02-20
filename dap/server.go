@@ -41,6 +41,7 @@ func (s Server) Run() {
 		s.config.log.Fatal("Misconfigured server: no Listener is configured.")
 		return
 	}
+	s.config.log.Info("server start")
 	go func() {
 		for {
 			conn, err := s.listener.Accept() // listener is closed in Stop()
@@ -60,6 +61,12 @@ func (s Server) Run() {
 			//		return
 			//	}
 			//}
+			ip := ""
+			if c, ok := conn.(net.Conn); ok {
+				ip = c.RemoteAddr().String()
+			}
+			s.config.log.Warnf("client %s connect", ip)
+
 			s.runSession(conn)
 		}
 	}()
@@ -80,6 +87,7 @@ func (s Server) Stop() {
 		session.Close()
 	}
 
+	s.config.log.Error("server stop")
 }
 
 func (s Server) runSession(conn net.Conn) {
