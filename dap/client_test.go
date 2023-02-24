@@ -36,27 +36,27 @@ func Test_newClientWithScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.msgChan = make(chan string)
-	go func() {
+	c.MsgChan = make(chan string)
+	go func(cli *Client) {
 		for {
-			msg := <-c.msgChan
+			msg := <-cli.MsgChan
 			t.Log(msg)
 		}
-	}()
+	}(c)
 
 	defer c.Close()
 
-	initialize(t, c)
+	initialize(t, c, 1)
 
-	launch(t, "", fileName, SCRIPT, c)
+	launch(t, "", fileName, SCRIPT, c, 2)
 
 	setBreakpoints(t, fileName, "", []int{2, 3, 5}, c)
 	// stop at 【breakpoint line 2】
-	onContinue(t, c)
+	onContinue(t, c, 4)
 	// stop at 【breakpoint line 3】
-	onContinue(t, c)
+	onContinue(t, c, 5)
 	// stop at 【breakpoint line 5】
-	onContinue(t, c)
+	onContinue(t, c, 6)
 
 	variables(t, c)
 	// result = true
@@ -65,8 +65,10 @@ func Test_newClientWithScript(t *testing.T) {
 	evaluate(t, "g_a == 2", c)
 	// = step over
 	next(t, c)
+	next(t, c)
+	next(t, c)
 
-	stepIn(t, c)
+	// stepIn(t, c)
 
 	onDisconnect(t, c)
 
@@ -81,27 +83,27 @@ func Test_newClientWithFilePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.msgChan = make(chan string)
+	c.MsgChan = make(chan string)
 	go func() {
 		for {
-			msg := <-c.msgChan
+			msg := <-c.MsgChan
 			t.Log(msg)
 		}
 	}()
 
 	defer c.Close()
 
-	initialize(t, c)
+	initialize(t, c, 1)
 
-	launch(t, filePath, fileName, SCRIPT, c)
+	launch(t, filePath, fileName, SCRIPT, c, 2)
 
 	setBreakpoints(t, fileName, filePath, []int{2, 3, 5}, c)
 	// stop at 【breakpoint line 2】
-	onContinue(t, c)
+	onContinue(t, c, 4)
 	// stop at 【breakpoint line 3】
-	onContinue(t, c)
+	onContinue(t, c, 5)
 	// stop at 【breakpoint line 5】
-	onContinue(t, c)
+	onContinue(t, c, 6)
 
 	variables(t, c)
 	// result = true
@@ -147,25 +149,38 @@ func variables(t *testing.T, c *Client) {
 	t.Logf("variables size : %d", len(variablesResponse.Body.Variables))
 }
 
-func launch(t *testing.T, filePath string, fileName string, script string, c *Client) {
+func launch(t *testing.T, filePath string, fileName string, script string, c *Client, seq int) {
 	args := LaunchConfig{
 		FilePath: filePath,
 		Program:  fileName,
 		Script:   script,
 		NoDebug:  false} //true=直接启动
 	b, _ := json.Marshal(args)
-	launchRequest := &dap.LaunchRequest{Arguments: b}
+	launchRequest := &dap.LaunchRequest{
+		Request: dap.Request{
+			ProtocolMessage: dap.ProtocolMessage{
+				Seq: seq,
+			},
+		},
+		Arguments: b,
+	}
 	launchResponse, err := c.Launch(launchRequest)
 	print("launchResponse", launchResponse, err, t)
 }
 
-func initialize(t *testing.T, c *Client) {
+func initialize(t *testing.T, c *Client, seq int) {
 	initializeRequest := &dap.InitializeRequest{
+		Request: dap.Request{
+			ProtocolMessage: dap.ProtocolMessage{
+				Seq: seq,
+			},
+		},
 		Arguments: dap.InitializeRequestArguments{
 			PathFormat:      "path",
 			LinesStartAt1:   true,
 			ColumnsStartAt1: true,
-		}}
+		},
+	}
 	initializeResponse, err := c.Initialize(initializeRequest)
 	print("initializeResponse", initializeResponse, err, t)
 }
@@ -190,8 +205,15 @@ func setBreakpoints(t *testing.T, fileName string, filePath string, lines []int,
 	print("setBreakpointsResponse", setBreakpointsResponse, err, t)
 }
 
-func onContinue(t *testing.T, c *Client) {
-	continueRequest := &dap.ContinueRequest{}
+func onContinue(t *testing.T, c *Client, seq int) {
+	continueRequest := &dap.ContinueRequest{
+		Request: dap.Request{
+			ProtocolMessage: dap.ProtocolMessage{
+				Seq: seq,
+			},
+		},
+		Arguments: dap.ContinueArguments{},
+	}
 	continueResponse, err := c.OnContinue(continueRequest)
 	print("continueResponse", continueResponse, err, t)
 }

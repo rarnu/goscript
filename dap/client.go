@@ -15,9 +15,12 @@ func NewClient(address string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{conn: conn,
+	c := &Client{
+		conn:     conn,
 		reader:   bufio.NewReader(conn),
-		readChan: make(chan ReadBody)}
+		readChan: make(chan ReadBody),
+		seq:      atomic.Int32{},
+	}
 	go c.Read()
 	return c, nil
 }
@@ -27,7 +30,7 @@ type Client struct {
 	reader   *bufio.Reader
 	seq      atomic.Int32
 	readChan chan ReadBody
-	msgChan  chan string
+	MsgChan  chan string
 }
 
 type ReadBody struct {
@@ -53,19 +56,20 @@ func (c *Client) Read() {
 						bytes: b,
 					}
 				} else if msg.Type == "event" {
-					event := "【event】: " + string(b)
-					if c.msgChan != nil {
-						c.msgChan <- event
+					// event := "【event】: " + string(b)
+					if c.MsgChan != nil {
+						c.MsgChan <- string(b)
 					}
 				} else {
-					if c.msgChan != nil {
-						c.msgChan <- string(b)
+					if c.MsgChan != nil {
+						c.MsgChan <- string(b)
 					}
 				}
 			}
 		}
 	}
 }
+
 func (c *Client) Close() error {
 	if c.conn == nil {
 		return nil

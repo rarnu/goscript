@@ -364,6 +364,14 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 				fmt.Sprintf("Compile err = %v", err))
 			return
 		}
+		if len(args.Args) > 0 {
+			mapArgs := map[string]any{}
+			if err0 := json.Unmarshal([]byte(args.Args[0]), &mapArgs); err0 == nil {
+				for k, v := range mapArgs {
+					_ = s.r.Set(k, v)
+				}
+			}
+		}
 		s.prg = prg
 		s.r.GetVm().SetProgram(prg)
 	}

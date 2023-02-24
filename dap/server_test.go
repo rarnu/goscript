@@ -12,7 +12,7 @@ func TestStartServer(t *testing.T) {
 
 	// 这个过程中，可以执行 client_test
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(1000 * time.Second)
 	svr.Stop()
 	println("Server Stopped")
 }
