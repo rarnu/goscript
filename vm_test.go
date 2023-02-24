@@ -107,7 +107,7 @@ func BenchmarkVmNOP2(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		vm.pc = 0
-		for !vm.halted() {
+		for !vm.Halted() {
 			prg[vm.pc](vm)
 		}
 		//vm.sp--

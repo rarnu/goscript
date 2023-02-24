@@ -8,11 +8,13 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
 	github.com/go-sql-driver/mysql v1.7.0
+	github.com/google/go-dap v0.7.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.1
 	github.com/isyscore/isc-gobase v1.5.0
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/microsoft/go-mssqldb v0.17.0
 	github.com/sijms/go-ora/v2 v2.5.21
+	github.com/sirupsen/logrus v1.6.0
 	go.etcd.io/etcd/client/v3 v3.5.6
 	golang.org/x/net v0.4.0
 	golang.org/x/text v0.5.0
@@ -43,6 +45,7 @@ require (
 	github.com/influxdata/line-protocol v0.0.0-20200327222509-2487e7298839 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/konsorten/go-windows-terminal-sequences v1.0.3 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect

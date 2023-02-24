@@ -408,6 +408,51 @@ func (p *Program) defineLiteralValue(val Value) uint32 {
 	return idx
 }
 
+type Location struct {
+	PC     uint64
+	File   string
+	Line   int
+	FnName string
+}
+
+func (p *Program) Stacktrace() []Location {
+	var locations []Location
+
+	for pc, ins := range p.code {
+		var prg *Program
+		switch f := ins.(type) {
+		case *newFunc:
+			prg = f.prg
+		case *newAsyncFunc:
+			prg = f.prg
+		case *newArrowFunc:
+			prg = f.prg
+		case *newAsyncArrowFunc:
+			prg = f.prg
+		case *newMethod:
+			prg = f.prg
+		case *newAsyncMethod:
+			prg = f.prg
+		case newFuncInstruction:
+			prg = f.getPrg()
+		case *newDerivedClass:
+			prg = f.ctor
+		case *newClass:
+			prg = f.ctor
+		case *newStaticFieldInit:
+		}
+		if prg != nil {
+			locations = append(locations, Location{PC: uint64(pc),
+				//todo 代码所在行数
+				Line:   pc,
+				FnName: prg.funcName.String(),
+				File:   prg.src.Name()})
+		}
+	}
+	return locations
+
+}
+
 func (p *Program) dumpCode(logger func(format string, args ...interface{})) {
 	p._dumpCode("", logger)
 }
@@ -424,18 +469,8 @@ func (p *Program) _dumpCode(indent string, logger func(format string, args ...in
 		logger("%s %d: %T(%v)", indent, pc, ins, ins)
 		var prg *Program
 		switch f := ins.(type) {
-		case *newFunc:
-			prg = f.prg
-		case *newAsyncFunc:
-			prg = f.prg
-		case *newArrowFunc:
-			prg = f.prg
-		case *newAsyncArrowFunc:
-			prg = f.prg
-		case *newMethod:
-			prg = f.prg
-		case *newAsyncMethod:
-			prg = f.prg
+		case newFuncInstruction:
+			prg = f.getPrg()
 		case *newDerivedClass:
 			if f.initFields != nil {
 				dumpInitFields(f.initFields)
@@ -1037,7 +1072,7 @@ func (c *compiler) createFunctionBindings(funcs []*ast.FunctionDeclaration) {
 		if !unique {
 			hasNonStandard := false
 			for _, decl := range funcs {
-				if !decl.Function.Async {
+				if !decl.Function.Async && !decl.Function.Generator {
 					s.bindNameLexical(decl.Function.Name.Name, false, int(decl.Function.Name.Idx1())-1)
 				} else {
 					hasNonStandard = true
@@ -1045,7 +1080,7 @@ func (c *compiler) createFunctionBindings(funcs []*ast.FunctionDeclaration) {
 			}
 			if hasNonStandard {
 				for _, decl := range funcs {
-					if decl.Function.Async {
+					if decl.Function.Async || decl.Function.Generator {
 						s.bindNameLexical(decl.Function.Name.Name, true, int(decl.Function.Name.Idx1())-1)
 					}
 				}
@@ -1252,6 +1287,9 @@ func (c *compiler) compileFunction(v *ast.FunctionDeclaration) {
 func (c *compiler) compileStandaloneFunctionDecl(v *ast.FunctionDeclaration) {
 	if v.Function.Async {
 		c.throwSyntaxError(int(v.Idx0())-1, "Async functions can only be declared at top level or inside a block.")
+	}
+	if v.Function.Generator {
+		c.throwSyntaxError(int(v.Idx0())-1, "Generators can only be declared at top level or inside a block.")
 	}
 	if c.scope.strict {
 		c.throwSyntaxError(int(v.Idx0())-1, "In strict mode code, functions can only be declared at top level or inside a block.")

@@ -2,6 +2,7 @@ package goscript
 
 import (
 	"reflect"
+	"strings"
 
 	"github.com/rarnu/goscript/unistring"
 )
@@ -19,7 +20,16 @@ func (o *objectGoMapSimple) init() {
 }
 
 func (o *objectGoMapSimple) _getStr(name string) Value {
-	v, exists := o.data[name]
+	var v any
+	exists := false
+	for k, v0 := range o.data {
+		if strings.ToLower(k) == strings.ToLower(name) {
+			v = v0
+			exists = true
+			break
+		}
+	}
+	// v, exists := o.data[name]
 	if !exists {
 		return nil
 	}
@@ -42,10 +52,18 @@ func (o *objectGoMapSimple) getOwnPropStr(name unistring.String) Value {
 
 func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bool) bool {
 	n := name.String()
-	if _, exists := o.data[n]; exists {
-		o.data[n] = val.Export()
-		return true
+	for k := range o.data {
+		if strings.ToLower(k) == strings.ToLower(n) {
+			o.data[k] = val.Export()
+			return true
+		}
 	}
+
+	//if _, exists := o.data[n]; exists {
+	//	o.data[n] = val.Export()
+	//	return true
+	//}
+	
 	if proto := o.prototype; proto != nil {
 		// we know it's foreign because prototype loops are not allowed
 		if res, ok := proto.self.setForeignStr(name, val, o.val, throw); ok {
@@ -74,7 +92,14 @@ func (o *objectGoMapSimple) setForeignStr(name unistring.String, val, receiver V
 }
 
 func (o *objectGoMapSimple) _hasStr(name string) bool {
-	_, exists := o.data[name]
+	exists := false
+	for k := range o.data {
+		if strings.ToLower(k) == strings.ToLower(name) {
+			exists = true
+			break
+		}
+	}
+	// _, exists := o.data[name]
 	return exists
 }
 

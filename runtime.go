@@ -110,6 +110,10 @@ type global struct {
 	SetPrototype         *Object
 	PromisePrototype     *Object
 
+	GeneratorFunctionPrototype *Object
+	GeneratorFunction          *Object
+	GeneratorPrototype         *Object
+
 	AsyncFunctionPrototype *Object
 
 	IteratorPrototype             *Object
@@ -217,6 +221,10 @@ type Runtime struct {
 	asyncContextTracker     AsyncContextTracker
 }
 
+func (r *Runtime) GetVm() *vm {
+	return r.vm
+}
+
 type StackFrame struct {
 	prg      *Program
 	funcName unistring.String
@@ -315,21 +323,36 @@ func (f *StackFrame) Write(b *bytes.Buffer) {
 	}
 }
 
+// An un-catchable exception is not catchable by try/catch statements (finally is not executed either),
+// but it is returned as an error to a Go caller rather than causing a panic.
+type uncatchableException interface {
+	error
+	_uncatchableException()
+}
+
 type Exception struct {
 	val   Value
 	stack []StackFrame
 }
 
-type uncatchableException struct {
-	err error
+//type uncatchableException struct {
+//	err error
+//}
+
+type baseUncatchableException struct {
+	Exception
 }
 
-func (ue *uncatchableException) Unwrap() error {
-	return ue.err
+//func (ue *uncatchableException) Unwrap() error {
+//	return ue.err
+//}
+
+func (e *baseUncatchableException) _uncatchableException() {
+
 }
 
 type InterruptedError struct {
-	Exception
+	baseUncatchableException
 	iface interface{}
 }
 
@@ -341,7 +364,7 @@ func (e *InterruptedError) Unwrap() error {
 }
 
 type StackOverflowError struct {
-	Exception
+	baseUncatchableException
 }
 
 func (e *InterruptedError) Value() interface{} {
@@ -424,6 +447,16 @@ func (r *Runtime) createIterProto(val *Object) objectImpl {
 	return o
 }
 
+func (r *Runtime) getIteratorPrototype() *Object {
+	var o *Object
+	if o = r.global.IteratorPrototype; o == nil {
+		o = &Object{runtime: r}
+		r.global.IteratorPrototype = o
+		o.self = r.createIterProto(o)
+	}
+	return o
+}
+
 func (r *Runtime) init() {
 	r.rand = rand.Float64
 	r.now = time.Now
@@ -441,11 +474,8 @@ func (r *Runtime) init() {
 	r.global.FunctionPrototype = funcProto
 	funcProtoObj := funcProto.self.(*nativeFuncObject)
 
-	r.global.IteratorPrototype = r.newLazyObject(r.createIterProto)
-
 	r.initObject()
 	r.initFunction()
-	r.initAsyncFunction()
 	r.initArray()
 	r.initString()
 	r.initGlobalObject()
@@ -615,10 +645,21 @@ func (r *Runtime) newFunc(name unistring.String, length int, strict bool) (f *fu
 func (r *Runtime) newAsyncFunc(name unistring.String, length int, strict bool) (f *asyncFuncObject) {
 	f = &asyncFuncObject{}
 	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
-	f.class = classAsyncFunction
-	f.prototype = r.global.AsyncFunctionPrototype
+	f.class = classFunction
+	f.prototype = r.getAsyncFunctionPrototype()
 	f.val.self = f
 	f.init(name, intToValue(int64(length)))
+	return
+}
+
+func (r *Runtime) newGeneratorFunc(name unistring.String, length int, strict bool) (f *generatorFuncObject) {
+	f = &generatorFuncObject{}
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.class = classFunction
+	f.prototype = r.getGeneratorFunctionPrototype()
+	f.val.self = f
+	f.init(name, intToValue(int64(length)))
+	f._putProp("prototype", r.newBaseObject(r.getGeneratorPrototype(), classObject).val, true, false, false)
 	return
 }
 
@@ -655,6 +696,16 @@ func (r *Runtime) newMethod(name unistring.String, length int, strict bool) (f *
 	return
 }
 
+func (r *Runtime) newGeneratorMethod(name unistring.String, length int, strict bool) (f *generatorMethodFuncObject) {
+	f = &generatorMethodFuncObject{}
+	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
+	f.prototype = r.getGeneratorFunctionPrototype()
+	f.val.self = f
+	f.init(name, intToValue(int64(length)))
+	f._putProp("prototype", r.newBaseObject(r.getGeneratorPrototype(), classObject).val, true, false, false)
+	return
+}
+
 func (r *Runtime) newAsyncMethod(name unistring.String, length int, strict bool) (f *asyncMethodFuncObject) {
 	f = &asyncMethodFuncObject{}
 	r.initBaseJsFunction(&f.baseJsFuncObject, strict)
@@ -679,8 +730,8 @@ func (r *Runtime) newArrowFunc(name unistring.String, length int, strict bool) (
 func (r *Runtime) newAsyncArrowFunc(name unistring.String, length int, strict bool) (f *asyncArrowFuncObject) {
 	f = &asyncArrowFuncObject{}
 	r.initArrowFunc(&f.arrowFuncObject, strict)
-	f.class = classAsyncFunction
-	f.prototype = r.global.AsyncFunctionPrototype
+	f.class = classObject
+	f.prototype = r.getAsyncFunctionPrototype()
 	f.val.self = f
 	f.init(name, intToValue(int64(length)))
 	return
@@ -1466,19 +1517,43 @@ func (r *Runtime) RunScript(name, src string) (Value, error) {
 	return r.RunProgram(p)
 }
 
+func isUncatchableException(e error) bool {
+	for ; e != nil; e = errors.Unwrap(e) {
+		if _, ok := e.(uncatchableException); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func asUncatchableException(v interface{}) error {
+	switch v := v.(type) {
+	case uncatchableException:
+		return v
+	case error:
+		if isUncatchableException(v) {
+			return v
+		}
+	}
+	return nil
+}
+
 // RunProgram executes a pre-compiled (see Compile()) code in the global context.
 func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 	vm := r.vm
 	recursive := len(vm.callStack) > 0
 	defer func() {
 		if recursive {
+			vm.sp -= 2
 			vm.popCtx()
 		} else {
 			vm.callStack = vm.callStack[:len(vm.callStack)-1]
 		}
 		if x := recover(); x != nil {
-			if ex, ok := x.(*uncatchableException); ok {
-				err = ex.err
+			// if ex, ok := x.(*uncatchableException); ok {
+			// 	err = ex.err
+			if ex := asUncatchableException(x); ex != nil {
+				err = ex
 				if len(vm.callStack) == 0 {
 					r.leaveAbrupt()
 				}
@@ -1490,7 +1565,15 @@ func (r *Runtime) RunProgram(p *Program) (result Value, err error) {
 	if recursive {
 		vm.pushCtx()
 		vm.stash = &r.global.stash
-		vm.sb = vm.sp - 1
+		vm.privEnv = nil
+		vm.newTarget = nil
+		vm.args = 0
+		sp := vm.sp
+		vm.stack.expand(sp + 1)
+		vm.stack[sp] = _undefined // 'callee'
+		vm.stack[sp+1] = nil      // 'this'
+		vm.sb = sp + 1
+		vm.sp = sp + 2
 	} else {
 		vm.callStack = append(vm.callStack, context{})
 	}
@@ -2044,13 +2127,24 @@ func (r *Runtime) wrapReflectFunc(value reflect.Value) func(FunctionCall) Value 
 			return _undefined
 		}
 
-		if last := out[len(out)-1]; last.Type().Name() == "error" {
+		// if last := out[len(out)-1]; last.Type().Name() == "error" {
+		if last := out[len(out)-1]; last.Type() == reflectTypeError {
 			if !last.IsNil() {
-				err := last.Interface()
+				err := last.Interface().(error)
 				if _, ok := err.(*Exception); ok {
 					panic(err)
 				}
-				panic(r.NewGoError(last.Interface().(error)))
+				// panic(r.NewGoError(last.Interface().(error)))
+				//var intErr *InterruptedError
+				//if errors.As(err, &intErr) {
+				//	panic(&uncatchableException{
+				//		err: err,
+				//	})
+				//}
+				if isUncatchableException(err) {
+					panic(err)
+				}
+				panic(r.NewGoError(err))
 			}
 			out = out[:len(out)-1]
 		}
@@ -2490,8 +2584,10 @@ func AssertConstructor(v Value) (Constructor, bool) {
 func (r *Runtime) runWrapped(f func()) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
-			if ex, ok := x.(*uncatchableException); ok {
-				err = ex.err
+			// if ex, ok := x.(*uncatchableException); ok {
+			// 	err = ex.err
+			if ex := asUncatchableException(x); ex != nil {
+				err = ex
 				if len(r.vm.callStack) == 0 {
 					r.leaveAbrupt()
 				}
@@ -2703,6 +2799,14 @@ func (r *Runtime) getIterator(obj Value, method func(FunctionCall) Value) *itera
 	}
 }
 
+func iteratorComplete(iterResult *Object) bool {
+	return nilSafe(iterResult.self.getStr("done", nil)).ToBoolean()
+}
+
+func iteratorValue(iterResult *Object) Value {
+	return nilSafe(iterResult.self.getStr("value", nil))
+}
+
 func (ir *iteratorRecord) iterate(step func(Value)) {
 	r := ir.iterator.runtime
 	for {
@@ -2710,10 +2814,10 @@ func (ir *iteratorRecord) iterate(step func(Value)) {
 			panic(r.NewTypeError("iterator.next is missing or not a function"))
 		}
 		res := r.toObject(ir.next(FunctionCall{This: ir.iterator}))
-		if nilSafe(res.self.getStr("done", nil)).ToBoolean() {
+		if iteratorComplete(res) {
 			break
 		}
-		value := nilSafe(res.self.getStr("value", nil))
+		value := iteratorValue(res)
 		ret := tryFunc(func() {
 			step(value)
 		})
@@ -2730,9 +2834,9 @@ func (ir *iteratorRecord) step() (value Value, ex *Exception) {
 	r := ir.iterator.runtime
 	ex = r.vm.try(func() {
 		res := r.toObject(ir.next(FunctionCall{This: ir.iterator}))
-		done := nilSafe(res.self.getStr("done", nil)).ToBoolean()
+		done := iteratorComplete(res)
 		if !done {
-			value = nilSafe(res.self.getStr("value", nil))
+			value = iteratorValue(res)
 		} else {
 			ir.close()
 		}

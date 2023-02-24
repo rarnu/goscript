@@ -243,7 +243,7 @@ func (o *objectGoReflect) elemToValue(ev reflect.Value) (Value, reflectValueWrap
 		return ret, nil
 	}
 
-	for ev.Kind() == reflect.Interface {
+	if /* for */ ev.Kind() == reflect.Interface {
 		ev = ev.Elem()
 	}
 

@@ -37,6 +37,12 @@ func (r *RequireModule) resolve(modpath string) (module *js.Object, err error) {
 			r.modules[p] = module
 		}
 	} else {
+		module, err = r.loadNative(origPath)
+		if err == nil {
+			return
+		} else {
+			err = nil
+		}
 		if module = r.nodeModules[p]; module != nil {
 			return
 		}
@@ -47,11 +53,6 @@ func (r *RequireModule) resolve(modpath string) (module *js.Object, err error) {
 	}
 
 	if module == nil && err == nil {
-		module, err = r.loadNative(modpath)
-		if err == nil {
-			return
-		}
-
 		err = InvalidModuleError
 	}
 	return

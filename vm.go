@@ -67,10 +67,9 @@ type execCtx struct {
 func (vm *vm) suspend(ectx *execCtx, tryStackLen, iterStackLen, refStackLen uint32) {
 	vm.saveCtx(&ectx.context)
 	ectx.stack = append(ectx.stack[:0], vm.stack[vm.sb-1:vm.sp]...)
-	if tryStackLen > 0 {
-		l := len(vm.tryStack) - int(tryStackLen)
-		ectx.tryStack = append(ectx.tryStack[:0], vm.tryStack[l:]...)
-		vm.tryStack = vm.tryStack[:l]
+	if len(vm.tryStack) > int(tryStackLen) {
+		ectx.tryStack = append(ectx.tryStack[:0], vm.tryStack[tryStackLen:]...)
+		vm.tryStack = vm.tryStack[:tryStackLen]
 		sp := int32(vm.sb - 1)
 		for i := range ectx.tryStack {
 			tf := &ectx.tryStack[i]
@@ -79,15 +78,13 @@ func (vm *vm) suspend(ectx *execCtx, tryStackLen, iterStackLen, refStackLen uint
 			tf.sp -= sp
 		}
 	}
-	if iterStackLen > 0 {
-		l := len(vm.iterStack) - int(iterStackLen)
-		ectx.iterStack = append(ectx.iterStack[:0], vm.iterStack[l:]...)
-		vm.iterStack = vm.iterStack[:l]
+	if len(vm.iterStack) > int(iterStackLen) {
+		ectx.iterStack = append(ectx.iterStack[:0], vm.iterStack[iterStackLen:]...)
+		vm.iterStack = vm.iterStack[:iterStackLen]
 	}
-	if refStackLen > 0 {
-		l := len(vm.refStack) - int(refStackLen)
-		ectx.refStack = append(ectx.refStack[:0], vm.refStack[l:]...)
-		vm.refStack = vm.refStack[:l]
+	if len(vm.refStack) > int(refStackLen) {
+		ectx.refStack = append(ectx.refStack[:0], vm.refStack[refStackLen:]...)
+		vm.refStack = vm.refStack[:refStackLen]
 	}
 }
 
@@ -337,6 +334,16 @@ type vm struct {
 
 	debugger  *Debugger
 	debugMode bool
+
+	started bool
+}
+
+func (v *vm) GetDebugger() *Debugger {
+	return v.debugger
+}
+
+func (v *vm) SetProgram(prg *Program) {
+	v.prg = prg
 }
 
 type instruction interface {
@@ -556,7 +563,7 @@ func (vm *vm) init() {
 	vm.maxCallStackSize = math.MaxInt32
 }
 
-func (vm *vm) halted() bool {
+func (vm *vm) Halted() bool {
 	pc := vm.pc
 	return pc < 0 || pc >= len(vm.prg.code)
 }
@@ -581,12 +588,20 @@ func (vm *vm) run() {
 		}
 		v.stack = vm.captureStack(nil, 0)
 		vm.interruptLock.Unlock()
-		panic(&uncatchableException{
-			err: v,
-		})
+		//panic(&uncatchableException{
+		//	err: v,
+		//})
+		panic(v)
 	}
 }
 
+func (vm *vm) DebugStart() {
+	if vm.started {
+		return
+	}
+	vm.started = true
+	go vm.debug()
+}
 func (vm *vm) debug() {
 	interrupted := false
 	ticks := 0
@@ -641,9 +656,10 @@ func (vm *vm) debug() {
 		atomic.StoreUint32(&vm.interrupted, 0)
 		vm.interruptVal = nil
 		vm.interruptLock.Unlock()
-		panic(&uncatchableException{
-			err: v,
-		})
+		//panic(&uncatchableException{
+		//	err: v,
+		//})
+		panic(v)
 	}
 }
 
@@ -739,6 +755,29 @@ func (vm *vm) popTryFrame() {
 	vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
 }
 
+func (vm *vm) restoreStacks(iterLen, refLen uint32) (ex *Exception) {
+	// Restore other stacks
+	iterTail := vm.iterStack[iterLen:]
+	for i := len(iterTail) - 1; i >= 0; i-- {
+		if iter := iterTail[i].iter; iter != nil {
+			ex1 := vm.try(func() {
+				iter.returnIter()
+			})
+			if ex1 != nil && ex == nil {
+				ex = ex1
+			}
+		}
+		iterTail[i] = iterStackItem{}
+	}
+	vm.iterStack = vm.iterStack[:iterLen]
+	refTail := vm.refStack[refLen:]
+	for i := range refTail {
+		refTail[i] = nil
+	}
+	vm.refStack = vm.refStack[:refLen]
+	return
+}
+
 func (vm *vm) handleThrow(arg interface{}) *Exception {
 	ex := vm.exceptionFromValue(arg)
 	for len(vm.tryStack) > 0 {
@@ -757,23 +796,7 @@ func (vm *vm) handleThrow(arg interface{}) *Exception {
 		vm.sp = int(tf.sp)
 		vm.stash = tf.stash
 		vm.privEnv = tf.privEnv
-
-		// Restore other stacks
-		iterTail := vm.iterStack[tf.iterLen:]
-		for i := range iterTail {
-			if iter := iterTail[i].iter; iter != nil {
-				_ = vm.try(func() {
-					iter.returnIter()
-				})
-			}
-			iterTail[i] = iterStackItem{}
-		}
-		vm.iterStack = vm.iterStack[:tf.iterLen]
-		refTail := vm.refStack[tf.refLen:]
-		for i := range refTail {
-			refTail[i] = nil
-		}
-		vm.refStack = vm.refStack[:tf.refLen]
+		_ = vm.restoreStacks(tf.iterLen, tf.refLen)
 
 		if tf.catchPos == tryPanicMarker {
 			break
@@ -832,7 +855,7 @@ func (vm *vm) runTry() (ex *Exception) {
 		} else {
 			ex = vm.runTryInner()
 		}
-		if ex != nil || vm.halted() {
+		if ex != nil || vm.Halted() {
 			return
 		}
 	}
@@ -883,9 +906,10 @@ func (vm *vm) pushCtx() {
 	if len(vm.callStack) > vm.maxCallStackSize {
 		ex := &StackOverflowError{}
 		ex.stack = vm.captureStack(nil, 0)
-		panic(&uncatchableException{
-			err: ex,
-		})
+		//panic(&uncatchableException{
+		//	err: ex,
+		//})
+		panic(ex)
 	}
 	vm.callStack = append(vm.callStack, context{})
 	ctx := &vm.callStack[len(vm.callStack)-1]
@@ -3708,6 +3732,10 @@ func (e *enterFuncStashless) exec(vm *vm) {
 	vm.pc++
 }
 
+type newFuncInstruction interface {
+	getPrg() *Program
+}
+
 type newFunc struct {
 	prg    *Program
 	name   unistring.String
@@ -3727,12 +3755,30 @@ func (n *newFunc) exec(vm *vm) {
 	vm.pc++
 }
 
+func (n *newFunc) getPrg() *Program {
+	return n.prg
+}
+
 type newAsyncFunc struct {
 	newFunc
 }
 
 func (n *newAsyncFunc) exec(vm *vm) {
 	obj := vm.r.newAsyncFunc(n.name, n.length, n.strict)
+	obj.prg = n.prg
+	obj.stash = vm.stash
+	obj.privEnv = vm.privEnv
+	obj.src = n.source
+	vm.push(obj.val)
+	vm.pc++
+}
+
+type newGeneratorFunc struct {
+	newFunc
+}
+
+func (n *newGeneratorFunc) exec(vm *vm) {
+	obj := vm.r.newGeneratorFunc(n.name, n.length, n.strict)
 	obj.prg = n.prg
 	obj.stash = vm.stash
 	obj.privEnv = vm.privEnv
@@ -3771,6 +3817,15 @@ func (n *newAsyncMethod) exec(vm *vm) {
 	n._exec(vm, &obj.methodFuncObject)
 }
 
+type newGeneratorMethod struct {
+	newMethod
+}
+
+func (n *newGeneratorMethod) exec(vm *vm) {
+	obj := vm.r.newGeneratorMethod(n.name, n.length, n.strict)
+	n._exec(vm, &obj.methodFuncObject)
+}
+
 type newArrowFunc struct {
 	newFunc
 }
@@ -3796,6 +3851,8 @@ func getHomeObject(v Value) *Object {
 	if o, ok := v.(*Object); ok {
 		switch fn := o.self.(type) {
 		case *methodFuncObject:
+			return fn.homeObject
+		case *generatorMethodFuncObject:
 			return fn.homeObject
 		case *asyncMethodFuncObject:
 			return fn.homeObject
@@ -4427,7 +4484,7 @@ func (leaveFinally) exec(vm *vm) {
 		vm.throw(ex)
 		return
 	} else {
-		if ret >= 0 {
+		if ret != -1 {
 			vm.pc = int(ret)
 		} else {
 			vm.pc++
@@ -5591,9 +5648,27 @@ func (r *getPrivateRefId) exec(vm *vm) {
 	vm.pc++
 }
 
-type await struct{}
+func (y *yieldMarker) exec(vm *vm) {
+	vm.pc = -vm.pc // this will terminate the run loop
+	vm.push(y)     // marker so the caller knows it's a yield, not a return
+}
 
-func (await) exec(vm *vm) {
-	vm.pc = -vm.pc             // this will terminate the run loop
-	vm.push(resultAwaitMarker) // a special marker value to indicate this is an await, not return
+func (y *yieldMarker) String() string {
+	if y == yieldEmpty {
+		return "empty"
+	}
+	switch y.resultType {
+	case resultYield:
+		return "yield"
+	case resultYieldRes:
+		return "yieldRes"
+	case resultYieldDelegate:
+		return "yield*"
+	case resultYieldDelegateRes:
+		return "yield*Res"
+	case resultAwait:
+		return "await"
+	default:
+		return "unknown"
+	}
 }
