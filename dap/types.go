@@ -34,7 +34,6 @@ import (
 //	   Required args: program, coreFilePath
 //	   Optional args: args
 //
-// TODO(hyangah): change this to 'validateLaunchMode' that checks
 // all the required/optional fields mentioned above.
 func isValidLaunchMode(mode string) bool {
 	switch mode {

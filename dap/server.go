@@ -36,43 +36,63 @@ func StartServer(port int) {
 	waitForDisconnectSignal(disconnectChan)
 }
 
-func (s Server) Run() {
+func StartInstance(port int) *Server {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		fmt.Printf("Start Server Error: %v\n", err)
+		return nil
+	}
+	disconnectChan := make(chan struct{})
+	server := NewServer(&Config{
+		log:            DAPLogger(),
+		Listener:       listener,
+		DisconnectChan: disconnectChan,
+		StopTriggered:  make(chan struct{}),
+	})
+	go func(s *Server) {
+		s.Run()
+	}(server)
+	return server
+}
+
+func (s *Server) Run() {
 	if s.listener == nil {
 		s.config.log.Fatal("Misconfigured server: no Listener is configured.")
 		return
 	}
 	s.config.log.Info("server start")
-	go func() {
-		for {
-			conn, err := s.listener.Accept() // listener is closed in Stop()
-			if err != nil {
-				select {
-				case <-s.config.StopTriggered:
-				default:
-					s.config.log.Errorf("Error accepting client connection: %s\n", err)
-					//s.config.triggerServerStop()
-				}
-				return
+	//go func() {
+	for {
+		conn, err := s.listener.Accept() // listener is closed in Stop()
+		if err != nil {
+			select {
+			case <-s.config.StopTriggered:
+				break
+			default:
+				s.config.log.Errorf("Error accepting client connection: %s\n", err)
+				//s.config.triggerServerStop()
 			}
-			//if s.config.CheckLocalConnUser {
-			//	if !sameuser.CanAccept(s.listener.Addr(), conn.LocalAddr(), conn.RemoteAddr()) {
-			//		s.config.log.Error("Error accepting client connection: Only connections from the same user that started this instance of Delve are allowed to connect. See --only-same-user.")
-			//		s.config.triggerServerStop()
-			//		return
-			//	}
-			//}
-			ip := ""
-			if c, ok := conn.(net.Conn); ok {
-				ip = c.RemoteAddr().String()
-			}
-			s.config.log.Warnf("client %s connect", ip)
-
-			s.runSession(conn)
+			return
 		}
-	}()
+		//if s.config.CheckLocalConnUser {
+		//	if !sameuser.CanAccept(s.listener.Addr(), conn.LocalAddr(), conn.RemoteAddr()) {
+		//		s.config.log.Error("Error accepting client connection: Only connections from the same user that started this instance of Delve are allowed to connect. See --only-same-user.")
+		//		s.config.triggerServerStop()
+		//		return
+		//	}
+		//}
+		ip := ""
+		if c, ok := conn.(net.Conn); ok {
+			ip = c.RemoteAddr().String()
+		}
+		s.config.log.Warnf("client %s connect", ip)
+
+		s.runSession(conn)
+	}
+	//}()
 }
 
-func (s Server) Stop() {
+func (s *Server) Stop() {
 	close(s.config.StopTriggered)
 
 	if s.listener != nil {
@@ -90,7 +110,7 @@ func (s Server) Stop() {
 	s.config.log.Error("server stop")
 }
 
-func (s Server) runSession(conn net.Conn) {
+func (s *Server) runSession(conn net.Conn) {
 	s.sessionMu.Lock()
 	session := NewSession(conn, s.config)
 	s.sessions = append(s.sessions, session) // closed in Stop()

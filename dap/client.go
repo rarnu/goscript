@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func newClient(address string) (*Client, error) {
+func NewClient(address string) (*Client, error) {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ type ReadBody struct {
 
 func (c *Client) Read() {
 	for {
-		c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		b, err := dap.ReadBaseMessage(c.reader)
 		if err != nil {
 			c.readChan <- ReadBody{
@@ -83,7 +83,7 @@ func (c *Client) sendAndReceive(req dap.RequestMessage, res any) error {
 		return err
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if err = dap.WriteBaseMessage(c.conn, b); err != nil {
 		return err
 	}
@@ -110,6 +110,7 @@ func (c *Client) Initialize(req *dap.InitializeRequest) (*dap.InitializeResponse
 	}
 	return res, nil
 }
+
 func (c *Client) Launch(req *dap.LaunchRequest) (*dap.LaunchResponse, error) {
 	req.Command = "launch"
 	var res = &dap.LaunchResponse{}
@@ -118,6 +119,7 @@ func (c *Client) Launch(req *dap.LaunchRequest) (*dap.LaunchResponse, error) {
 	}
 	return res, nil
 }
+
 func (c *Client) OnContinue(req *dap.ContinueRequest) (*dap.ContinueResponse, error) {
 	req.Command = "continue"
 	var res = &dap.ContinueResponse{}
@@ -126,6 +128,7 @@ func (c *Client) OnContinue(req *dap.ContinueRequest) (*dap.ContinueResponse, er
 	}
 	return res, nil
 }
+
 func (c *Client) OnNext(req *dap.NextRequest) (*dap.NextResponse, error) {
 	req.Command = "next"
 	var res = &dap.NextResponse{}
@@ -142,6 +145,7 @@ func (c *Client) onStepIn(req *dap.StepInRequest) (*dap.StepOutResponse, error) 
 	}
 	return res, nil
 }
+
 func (c *Client) onStepOut(req *dap.StepOutRequest) (*dap.StepOutResponse, error) {
 	req.Command = "stepOut"
 	var res = &dap.StepOutResponse{}
@@ -159,6 +163,7 @@ func (c *Client) SetBreakpoints(req *dap.SetBreakpointsRequest) (*dap.SetBreakpo
 	}
 	return res, nil
 }
+
 func (c *Client) OnVariables(req *dap.VariablesRequest) (*dap.VariablesResponse, error) {
 	req.Command = "variables"
 	var res = &dap.VariablesResponse{}
@@ -167,6 +172,7 @@ func (c *Client) OnVariables(req *dap.VariablesRequest) (*dap.VariablesResponse,
 	}
 	return res, nil
 }
+
 func (c *Client) Evaluate(req *dap.EvaluateRequest) (*dap.EvaluateResponse, error) {
 	req.Command = "evaluate"
 	var res = &dap.EvaluateResponse{}
@@ -175,6 +181,7 @@ func (c *Client) Evaluate(req *dap.EvaluateRequest) (*dap.EvaluateResponse, erro
 	}
 	return res, nil
 }
+
 func (c *Client) OnDisconnectRequest(req *dap.DisconnectRequest) (*dap.DisconnectResponse, error) {
 	req.Command = "disconnect"
 	var res = &dap.DisconnectResponse{}

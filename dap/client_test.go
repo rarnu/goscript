@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const SERVER_ADDRESS = "0.0.0.0:6666"
+const ServerAddress = "127.0.0.1:6666"
 
 const SCRIPT = `
 var g_a = 1;
@@ -32,7 +32,7 @@ f1();
 func Test_newClientWithScript(t *testing.T) {
 	fileName := "test.js"
 
-	c, err := newClient(SERVER_ADDRESS)
+	c, err := NewClient(ServerAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func Test_newClientWithFilePath(t *testing.T) {
 	fileName := "test.js"
 	filePath := "D:\\code\\goscript\\dap\\script"
 
-	c, err := newClient(SERVER_ADDRESS)
+	c, err := NewClient(ServerAddress)
 	if err != nil {
 		t.Fatal(err)
 	}

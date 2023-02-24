@@ -34,8 +34,7 @@ func makeLogger(flag bool, fields logrus.Fields) *logrus.Entry {
 // textFormatter is a simplified version of logrus.TextFormatter that
 // doesn't make logs unreadable when they are output to a text file or to a
 // terminal that doesn't support colors.
-type textFormatter struct {
-}
+type textFormatter struct{}
 
 func (f *textFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	var b *bytes.Buffer
@@ -63,7 +62,7 @@ func (f *textFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 			stringVal = fmt.Sprint(entry.Data[key])
 		}
 		if f.needsQuoting(stringVal) {
-			fmt.Fprintf(b, "%q", stringVal)
+			_, _ = fmt.Fprintf(b, "%q", stringVal)
 		} else {
 			b.WriteString(stringVal)
 		}

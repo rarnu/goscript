@@ -45,7 +45,9 @@ func NewSession(conn io.ReadWriteCloser, config *Config) *Session {
 func (s *Session) ServeDAPCodec() {
 	// Close conn, but not the debugger in case we are in AcceptMuli mode.
 	// If not, debugger will be shut down in Stop().
-	defer s.conn.Close()
+	defer func(conn *connection) {
+		_ = conn.Close()
+	}(s.conn)
 	reader := bufio.NewReader(s.conn)
 	for {
 		request, err := dap.ReadProtocolMessage(reader)
@@ -216,7 +218,6 @@ func (s *Session) send(message dap.Message) {
 	jsonmsg, _ := json.Marshal(message)
 	s.config.log.Debug("[-> to client]", string(jsonmsg))
 
-	// TODO(polina): consider using a channel for all the sends and to have a dedicated
 	// goroutine that reads from that channel and sends over the connection.
 	// This will avoid blocking on slow network sends.
 	s.sendingMu.Lock()
@@ -227,9 +228,9 @@ func (s *Session) send(message dap.Message) {
 	}
 }
 
-func (s Session) Close() {
+func (s *Session) Close() {
 	if s.conn != nil && !s.conn.isClosed() {
-		s.conn.Close()
+		_ = s.conn.Close()
 	}
 }
 
@@ -286,7 +287,7 @@ func (s *Session) onInitializeRequest(request *dap.InitializeRequest) {
 	// To be enabled by CapabilitiesEvent based on launch configuration
 	response.Body.SupportsStepBack = false
 	response.Body.SupportTerminateDebuggee = false
-	// TODO(polina): support these requests in addition to vscode-go feature parity
+
 	response.Body.SupportsTerminateRequest = false
 	response.Body.SupportsRestartRequest = false
 	response.Body.SupportsSetExpression = false
@@ -374,7 +375,6 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 
 		// Start the program on a different goroutine, so we can listen for disconnect request.
 		go func() {
-			//todo 返回值
 			if _, err := s.r.RunProgram(s.prg); err != nil {
 				s.config.log.Debugf("program exited with error: %v", err)
 			}
@@ -428,7 +428,7 @@ func (s *Session) onDisconnectRequest(request *dap.DisconnectRequest) {
 	if s.debugger != nil {
 		s.debugger.Detach()
 	}
-	s.conn.Close()
+	_ = s.conn.Close()
 
 	s.r = nil
 	s.debugger = nil
@@ -484,7 +484,6 @@ func (s *Session) onNextRequest(request *dap.NextRequest) {
 		s.send(stopped)
 		return
 	}
-	// todo response stopped at where
 }
 
 func (s *Session) onStepInRequest(request *dap.StepInRequest) {
@@ -505,12 +504,10 @@ func (s *Session) onStepInRequest(request *dap.StepInRequest) {
 
 func (s *Session) onStepOutRequest(request *dap.StepOutRequest) {
 	s.sendStepResponse(request.Arguments.ThreadId, &dap.StepOutResponse{Response: *newResponse(request.Request)})
-
-	//todo stepOut?
 }
 
 func (s *Session) sendStepResponse(threadId int, message dap.Message) {
-	// All of the threads will be continued by this request, so we need to send
+	// All the threads will be continued by this request, so we need to send
 	// a continued event so the UI can properly reflect the current state.
 	s.send(&dap.ContinuedEvent{
 		Event: *newEvent("continued"),
@@ -568,7 +565,6 @@ func (s *Session) onThreadsRequest(request *dap.ThreadsRequest) {
 	// if process not start
 	threads = []dap.Thread{{Id: 1, Name: "Dummy"}}
 
-	// todo fetch thread and goroutine
 	response := &dap.ThreadsResponse{
 		Response: *newResponse(request.Request),
 		Body:     dap.ThreadsResponseBody{Threads: threads},
@@ -581,7 +577,7 @@ func (s *Session) onStackTraceRequest(request *dap.StackTraceRequest) {
 		s.sendErrorResponse(request.Request, UnableToProduceStackTrace, "Unable to produce stack trace", "debugger is nil")
 		return
 	}
-	stackFrames := []dap.StackFrame{} // initialize to empty, since nil is not an accepted response.
+	var stackFrames []dap.StackFrame // initialize to empty, since nil is not an accepted response.
 
 	locations := s.prg.Stacktrace()
 	totalFrames := len(locations)
@@ -599,9 +595,8 @@ func (s *Session) onStackTraceRequest(request *dap.StackTraceRequest) {
 
 func (s *Session) onScopesRequest(request *dap.ScopesRequest) {
 	//request.Arguments.FrameId
-	// todo find stackFrame by frameId, then Retrieve function/arguments/local variables
 
-	scopes := []dap.Scope{}
+	var scopes []dap.Scope
 
 	response := &dap.ScopesResponse{
 		Response: *newResponse(request.Request),
@@ -621,7 +616,7 @@ func (s *Session) onVariablesRequest(request *dap.VariablesRequest) {
 		s.sendErrorResponse(request.Request, UnableToLookupVariable, "Unable to lookup variable", err.Error())
 		return
 	}
-	children := []dap.Variable{} // must return empty array, not null, if no children
+	var children []dap.Variable // must return empty array, not null, if no children
 	for name, value := range variables {
 		v := dap.Variable{Name: name, Value: value.String()}
 		// maybe undefined
