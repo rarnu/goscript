@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/google/go-dap"
 	"github.com/rarnu/goscript"
+	"github.com/rarnu/goscript/module/console"
+	"github.com/rarnu/goscript/module/require"
 	"io"
 	"net"
 	"os"
@@ -364,6 +366,8 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 				fmt.Sprintf("Compile err = %v", err))
 			return
 		}
+
+		// 加入调试参数
 		if len(args.Args) > 0 {
 			mapArgs := map[string]any{}
 			if err0 := json.Unmarshal([]byte(args.Args[0]), &mapArgs); err0 == nil {
@@ -372,6 +376,11 @@ func (s *Session) onLaunchRequest(request *dap.LaunchRequest) {
 				}
 			}
 		}
+		// 加入 console 输出
+		new(require.Registry).Enable(s.r)
+		printer := &console.ExecPrinter{}
+		require.RegisterNativeModule("console", console.RequireWithPrinter(printer))
+		console.Enable(s.r)
 		s.prg = prg
 		s.r.GetVm().SetProgram(prg)
 	}

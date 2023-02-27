@@ -1,6 +1,7 @@
 package console
 
 import (
+	"fmt"
 	"github.com/rarnu/goscript"
 	"log"
 
@@ -8,7 +9,8 @@ import (
 	"github.com/rarnu/goscript/module/util"
 )
 
-const ModuleName = "node:console"
+// const ModuleName = "node:console"
+const ModuleName = "console"
 
 type Console struct {
 	runtime *goscript.Runtime
@@ -31,6 +33,23 @@ func (p PrinterFunc) Warn(s string) { p(s) }
 func (p PrinterFunc) Error(s string) { p(s) }
 
 var defaultPrinter Printer = PrinterFunc(func(s string) { log.Print(s) })
+
+type ExecPrinter struct {
+	Printer
+	Lines []string
+}
+
+func (e *ExecPrinter) Log(msg string) {
+	e.Lines = append(e.Lines, fmt.Sprintf("[info] %s", msg))
+}
+
+func (e *ExecPrinter) Warn(msg string) {
+	e.Lines = append(e.Lines, fmt.Sprintf("[warn] %s", msg))
+}
+
+func (e *ExecPrinter) Error(msg string) {
+	e.Lines = append(e.Lines, fmt.Sprintf("[error] %s", msg))
+}
 
 func (c *Console) log(p func(string)) func(goscript.FunctionCall) goscript.Value {
 	return func(call goscript.FunctionCall) goscript.Value {

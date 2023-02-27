@@ -212,13 +212,19 @@ func (dbg *Debugger) Next() error {
 	// TODO: implement proper error propagation
 	lastLine := dbg.Line()
 	dbg.updateCurrentLine()
-	if dbg.getLastLine() != dbg.Line() {
+	if dbg.getLastLine() == dbg.Line() {
 		nextLine := dbg.getNextLine()
 		for dbg.safeToRun() && nextLine > 0 && dbg.Line() != nextLine {
 			dbg.updateCurrentLine()
 			dbg.vm.prg.code[dbg.vm.pc].exec(dbg.vm)
 		}
-		dbg.updateLastLine(lastLine)
+		if nextLine == 0 {
+			// 已经没有下一行了
+			reason := dbg.Continue()
+			return fmt.Errorf(string(reason))
+		} else {
+			dbg.updateLastLine(lastLine + 1)
+		}
 	} else if dbg.getNextLine() == 0 {
 		// Step out of functions
 		return errors.New("exhausted")
@@ -234,9 +240,10 @@ func (dbg *Debugger) Exec(expr string) (Value, error) {
 		return nil, errors.New("nothing to execute")
 	}
 	val, err := dbg.eval(expr)
-
-	lastLine := dbg.Line()
-	dbg.updateLastLine(lastLine)
+	if err == nil {
+		lastLine := dbg.Line()
+		dbg.updateLastLine(lastLine)
+	}
 	return val, err
 }
 
@@ -281,6 +288,9 @@ func (dbg *Debugger) breakpoint() bool {
 }
 
 func (dbg *Debugger) getLastLine() int {
+	if dbg.lastLine == 0 {
+		dbg.lastLine = 1
+	}
 	if dbg.lastLine >= 0 {
 		return dbg.lastLine
 	}
@@ -362,9 +372,7 @@ func (dbg *Debugger) eval(expr string) (v Value, err error) {
 
 	defer func() {
 		if x := recover(); x != nil {
-			// if ex, ok := x.(*uncatchableException); ok {
-			// 	err = ex.err
-			if ex := asUncatchableException(x); x != nil {
+			if ex := asUncatchableException(x); ex != nil {
 				err = ex
 			} else {
 				err = fmt.Errorf("cannot recover from exception %s", x)

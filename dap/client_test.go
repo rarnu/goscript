@@ -157,11 +157,6 @@ func launch(t *testing.T, filePath string, fileName string, script string, c *Cl
 		NoDebug:  false} //true=直接启动
 	b, _ := json.Marshal(args)
 	launchRequest := &dap.LaunchRequest{
-		Request: dap.Request{
-			ProtocolMessage: dap.ProtocolMessage{
-				Seq: seq,
-			},
-		},
 		Arguments: b,
 	}
 	launchResponse, err := c.Launch(launchRequest)
@@ -231,7 +226,7 @@ func print(prefix string, data any, err error, t *testing.T) {
 		if _, err := json.Marshal(data); err != nil {
 			t.Log(err.Error())
 		} else {
-			t.Log("  【" + prefix + "】")
+			t.Logf("  【%s】%+v", prefix, data)
 			//t.Log("  【" + prefix + " size】: " + strconv.Itoa(len(b)))
 			//t.Log("  【" + prefix + "】: " + string(b))
 		}
