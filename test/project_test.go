@@ -324,3 +324,41 @@ obj
 	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
 
 }
+
+func TestTryGetExport(t *testing.T) {
+	SCRIPT := `
+	let obj = {a: 1, b: 'x'}
+	obj
+	`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	v, e := vm.RunString(SCRIPT)
+
+	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
+}
+
+func TestInjectArray(t *testing.T) {
+	SCRIPT := `
+let arr = $resp.data.export.a
+console.log('arr = ' + arr)
+arr.push(1)
+console.log('arr = ' + arr)
+arr
+`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	var a any
+	a = []any{1, "a", 2, "b"}
+	m := map[string]any{
+		"data": map[string]any{
+			"export": map[string]any{
+				"a": a,
+			},
+		},
+	}
+	_ = vm.Set("$resp", &m)
+	v, e := vm.RunString(SCRIPT)
+	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
+}

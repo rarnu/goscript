@@ -189,6 +189,28 @@ if (result.value !== pair) {
 	testScript(SCRIPT, _undefined, t)
 }
 
+func TestStringReplace(t *testing.T) {
+	const SCRIPT = `
+let str = 'abcdabcdabcdabcdabcd'
+let str2 = str.replaceAll('abcd', 'x')
+str2
+`
+	testScript(SCRIPT, asciiString("xxxxx"), t)
+}
+
+func TestStringDate(t *testing.T) {
+	const SCRIPT = `
+let r1 = new Date().toLocaleString()
+let r2 = r1.replaceAll("/", "_")
+let ret = {r1: r1, r2: r2}
+ret
+`
+	vm := New()
+	v, e := vm.RunString(SCRIPT)
+	t.Logf("v = %v, e = %v\n", v.Export(), e)
+
+}
+
 func TestValueStringBuilder(t *testing.T) {
 	t.Run("substringASCII", func(t *testing.T) {
 		t.Parallel()
