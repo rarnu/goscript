@@ -3,6 +3,7 @@ package goscript
 import (
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/rarnu/goscript/unistring"
 )
@@ -10,6 +11,7 @@ import (
 type objectGoMapSimple struct {
 	baseObject
 	data map[string]interface{}
+	mu   sync.RWMutex
 }
 
 func (o *objectGoMapSimple) init() {
@@ -51,6 +53,9 @@ func (o *objectGoMapSimple) getOwnPropStr(name unistring.String) Value {
 }
 
 func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bool) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	n := name.String()
 	for k := range o.data {
 		if strings.ToLower(k) == strings.ToLower(n) {
@@ -59,11 +64,6 @@ func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bo
 		}
 	}
 
-	//if _, exists := o.data[n]; exists {
-	//	o.data[n] = val.Export()
-	//	return true
-	//}
-	
 	if proto := o.prototype; proto != nil {
 		// we know it's foreign because prototype loops are not allowed
 		if res, ok := proto.self.setForeignStr(name, val, o.val, throw); ok {
@@ -111,6 +111,9 @@ func (o *objectGoMapSimple) defineOwnPropertyStr(name unistring.String, descr Pr
 	if !o.val.runtime.checkHostObjectPropertyDescr(name, descr, throw) {
 		return false
 	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
 
 	n := name.String()
 	if o.extensible || o._hasStr(n) {

@@ -362,3 +362,47 @@ arr
 	v, e := vm.RunString(SCRIPT)
 	fmt.Printf("v = %+v\n, e = %v\n", v.Export(), e)
 }
+
+func TestNan(t *testing.T) {
+	// {"code":"let index = $loopitem; \nlet result = {\n    \"name\" : \"hbt\" + index,\n    \"age\" : index,\n    \"gender\" : index%2,
+	//\n    \"stature\" : index * 10 + index,\n    \"weight\" : index * 20 + index*2,\n    \"description\" : \"description\"+index
+	//\n}\nresult\n\n","requestData":{},"stepData":{},"extraData":{}, "loopitem":"datatadas"}
+	SCRIPT := `let index = $loopitem
+let result = {
+	"name": "hbt" + index,
+	"age": index,
+	"gender": index*2,
+	"stature": index*10+index,
+	"weight": index*20+index*2,
+	"description": "description" + index
+}
+result
+`
+	vm := goscript.New()
+	new(require.Registry).Enable(vm)
+	console.Enable(vm)
+	_ = vm.Set("$loopitem", "dataadas")
+	v, e := vm.RunString(SCRIPT)
+	v0 := v.Export()
+	fmt.Printf("v = %+v\n, e = %v\n", v0, e)
+
+}
+
+func TestReqCount(t *testing.T) {
+	SCRIPT := `let result = []
+for (let i = 1;i<$req.data.count+1;i++){
+    result.push(i)
+}
+result
+`
+	vm := goscript.New()
+	req := map[string]any{
+		"data": map[string]any{
+			"count": "2",
+		},
+	}
+	_ = vm.Set("$req", &req)
+	v, e := vm.RunString(SCRIPT)
+	v0 := v.Export()
+	fmt.Printf("v = %+v\n, e = %v\n", v0, e)
+}
