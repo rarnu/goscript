@@ -53,13 +53,12 @@ func (o *objectGoMapSimple) getOwnPropStr(name unistring.String) Value {
 }
 
 func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bool) bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	n := name.String()
 	for k := range o.data {
 		if strings.ToLower(k) == strings.ToLower(n) {
+			o.mu.Lock()
 			o.data[k] = val.Export()
+			o.mu.Unlock()
 			return true
 		}
 	}
@@ -75,7 +74,9 @@ func (o *objectGoMapSimple) setOwnStr(name unistring.String, val Value, throw bo
 		o.val.runtime.typeErrorResult(throw, "Cannot add property %s, object is not extensible", name)
 		return false
 	} else {
+		o.mu.Lock()
 		o.data[n] = val.Export()
+		o.mu.Unlock()
 	}
 	return true
 }
@@ -112,12 +113,11 @@ func (o *objectGoMapSimple) defineOwnPropertyStr(name unistring.String, descr Pr
 		return false
 	}
 
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	n := name.String()
 	if o.extensible || o._hasStr(n) {
+		o.mu.Lock()
 		o.data[n] = descr.Value.Export()
+		o.mu.Unlock()
 		return true
 	}
 
