@@ -3,7 +3,6 @@ package goscript
 import (
 	"database/sql"
 	"fmt"
-	d0 "github.com/isyscore/isc-gobase/database"
 	_ "github.com/microsoft/go-mssqldb"
 )
 
@@ -40,7 +39,7 @@ func (r *Runtime) builtinMssql_query(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Mssql.prototype.query called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_sql := call.Argument(0).toString().String()
-	rows, err := d0.Query(mo.db, _sql)
+	rows, err := DatabaseQuery(mo.db, _sql)
 	if err != nil {
 		return _null
 	} else {

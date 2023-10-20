@@ -3,7 +3,7 @@ package test
 import (
 	"database/sql"
 	"fmt"
-	d0 "github.com/isyscore/isc-gobase/database"
+	"github.com/rarnu/goscript"
 	"testing"
 )
 
@@ -15,7 +15,7 @@ func testWithDatabase(connstr string, typ string, sqlstr string) {
 	defer func() {
 		_ = db.Close()
 	}()
-	rows, _ := d0.Query(db, sqlstr)
+	rows, _ := goscript.DatabaseQuery(db, sqlstr)
 	for idx, row := range rows {
 		fmt.Printf("row: %d\n", idx)
 		for k, v := range row {

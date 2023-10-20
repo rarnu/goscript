@@ -211,10 +211,12 @@ a
 
 func TestHttp(t *testing.T) {
 	SCRIPT := `
-let ret = HTTP.get('https://www.qq.com', null, null)
+let ret = HTTP.get('http://0.0.0.0:9013/api/core/license/info', null, null)
 console.log(ret.statusCode)
 console.log(ret.data.data.licenseCode)
 console.log(ret.data.data.customer.enterpriseName)
+let obj = {code: ret.statusCode, licCode: ret.data.data.licenseCode, enterprise: ret.data.data.customer.enterpriseName}
+obj
 `
 	vm := goscript.New()
 
@@ -222,7 +224,9 @@ console.log(ret.data.data.customer.enterpriseName)
 	registry.Enable(vm)
 	console.Enable(vm)
 	p, _ := goscript.Compile("test.js", SCRIPT, false)
-	_, _ = vm.RunProgram(p)
+	ret, _ := vm.RunProgram(p)
+	obj := ret.Export()
+	fmt.Printf("obj = %+v\n", obj)
 }
 
 func TestMysql(t *testing.T) {

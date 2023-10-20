@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	d0 "github.com/isyscore/isc-gobase/database"
 )
 
 type mysqlObject struct {
@@ -40,7 +39,7 @@ func (r *Runtime) builtinMysql_query(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Mysql.prototype.query called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_sql := call.Argument(0).toString().String()
-	rows, err := d0.Query(mo.db, _sql)
+	rows, err := DatabaseQuery(mo.db, _sql)
 	if err != nil {
 		return _null
 	} else {
