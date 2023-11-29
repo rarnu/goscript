@@ -213,26 +213,29 @@ func privateHttpPost(url string, header http.Header, parameterMap map[string]str
 }
 
 func privateHttpPostForm(url string, header http.Header, parameterMap map[string]any) (int, http.Header, any, error) {
-	var httpRequest http.Request
-	_ = httpRequest.ParseForm()
+	//先处理将param转body
+	var formTempRequest http.Request
+	_ = formTempRequest.ParseForm()
 	if parameterMap != nil {
-		_ = httpRequest.ParseForm()
+		_ = formTempRequest.ParseForm()
 		for k, v := range parameterMap {
-			httpRequest.Form.Add(k, fmt.Sprintf("%v", v))
+			formTempRequest.Form.Add(k, fmt.Sprintf("%v", v))
 		}
 	}
-	if header != nil {
-		httpRequest.Header = header
-	}
-	body := strings.NewReader(httpRequest.Form.Encode())
+	body := strings.NewReader(formTempRequest.Form.Encode())
 
-	// 简单封装一下
+	// 开始封装一下真实的请求
 	httpReq, err := http.NewRequest("POST", url, body)
+	if header != nil {
+		httpReq.Header = header
+	}
+	httpReq.Form = formTempRequest.Form
+	httpReq.PostForm = formTempRequest.Form
+
 	if err != nil {
 		return 0, nil, nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
 	resp, err := httpClient.Do(httpReq)
 	rspCode, rspHead, rspData, err := doParseResponse(resp, err)
 
