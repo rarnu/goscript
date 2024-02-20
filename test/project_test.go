@@ -250,25 +250,6 @@ db.close()
 
 }
 
-func TestRedis(t *testing.T) {
-	SCRIPT := `
-let cli = new Redis('10.30.30.81', 26379, 'ZljIsysc0re123', 7)
-cli.set('go-script:sample-id', 'abcdefg')
-let i = cli.get('go-script:sample-id')
-console.log(i)
-cli.close()
-`
-	vm := goscript.New()
-	registry := new(require.Registry)
-	registry.Enable(vm)
-	console.Enable(vm)
-	p, err := goscript.Compile("test.js", SCRIPT, false)
-	t.Logf("compile error: %v", err)
-	_, err = vm.RunProgram(p)
-	t.Logf("run error: %v", err)
-
-}
-
 func TestRunCode(t *testing.T) {
 	SCRIPT := `
 	console.log('sample')

@@ -5,13 +5,14 @@ go 1.18
 require (
 	gitee.com/chunanyong/dm v1.8.10
 	github.com/dlclark/regexp2 v1.7.0
-	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/google/go-dap v0.7.0
 	github.com/influxdata/influxdb-client-go/v2 v2.12.1
 	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/microsoft/go-mssqldb v0.17.0
+	github.com/redis/go-redis/v9 v9.5.0
+	github.com/go-redis/redis/v8 v8.11.5
 	github.com/sijms/go-ora/v2 v2.5.21
 	github.com/sirupsen/logrus v1.6.0
 	go.etcd.io/etcd/client/v3 v3.5.6
@@ -23,10 +24,12 @@ require (
 )
 
 require (
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/deepmap/oapi-codegen v1.8.2 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/gin-gonic/gin v1.8.1 // indirect

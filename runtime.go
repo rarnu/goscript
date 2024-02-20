@@ -148,28 +148,34 @@ type global struct {
 	arrayValues   *Object
 	arrayToString *Object
 
-	Etcd                   *Object
-	EtcdPrototype          *Object
-	Dameng                 *Object
-	DamengPrototype        *Object
-	InfluxDB               *Object
-	InfluxDBPrototype      *Object
-	InfluxDBWrite          *Object
-	InfluxDBWritePrototype *Object
-	InfluxDBQuery          *Object
-	InfluxDBQueryPrototype *Object
-	InfluxDBPoint          *Object
-	InfluxDBPointPrototype *Object
-	Mssql                  *Object
-	MssqlPrototype         *Object
-	Mysql                  *Object
-	MysqlPrototype         *Object
-	Oracle                 *Object
-	OraclePrototype        *Object
-	Redis                  *Object
-	RedisPrototype         *Object
-	SQLite                 *Object
-	SQLitePrototype        *Object
+	Etcd                    *Object
+	EtcdPrototype           *Object
+	Dameng                  *Object
+	DamengPrototype         *Object
+	InfluxDB                *Object
+	InfluxDBPrototype       *Object
+	InfluxDBWrite           *Object
+	InfluxDBWritePrototype  *Object
+	InfluxDBQuery           *Object
+	InfluxDBQueryPrototype  *Object
+	InfluxDBPoint           *Object
+	InfluxDBPointPrototype  *Object
+	Mssql                   *Object
+	MssqlPrototype          *Object
+	Mysql                   *Object
+	MysqlPrototype          *Object
+	Oracle                  *Object
+	OraclePrototype         *Object
+	Redis                   *Object
+	RedisPrototype          *Object
+	RedisV8                 *Object
+	RedisV8Prototype        *Object
+	RedisCluster            *Object
+	RedisClusterPrototype   *Object
+	RedisClusterV8          *Object
+	RedisClusterV8Prototype *Object
+	SQLite                  *Object
+	SQLitePrototype         *Object
 }
 
 type Flag int
@@ -514,6 +520,9 @@ func (r *Runtime) init() {
 	r.initMySQL()
 	r.initOracle()
 	r.initRedis()
+	r.initRedisCluster()
+	r.initRedisV8()
+	r.initRedisClusterV8()
 	r.initSQLite()
 
 	r.global.thrower = r.newNativeFunc(r.builtin_thrower, nil, "", nil, 0)

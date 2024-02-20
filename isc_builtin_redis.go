@@ -1,8 +1,9 @@
 package goscript
 
 import (
+	c0 "context"
 	"fmt"
-	"github.com/go-redis/redis"
+	"github.com/redis/go-redis/v9"
 	"time"
 )
 
@@ -27,7 +28,7 @@ func (r *Runtime) builtinRedis_get(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.get called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	s, err := ro.cli.Get(call.Argument(0).toString().String()).Result()
+	s, err := ro.cli.Get(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -46,7 +47,7 @@ func (r *Runtime) builtinRedis_set(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_val := call.Argument(1).Export()
 	_expire := call.Argument(2).ToInteger()
-	err := ro.cli.Set(_key, _val, time.Millisecond*time.Duration(_expire)).Err()
+	err := ro.cli.Set(c0.Background(), _key, _val, time.Millisecond*time.Duration(_expire)).Err()
 	return r.toBoolean(err == nil)
 }
 
@@ -56,7 +57,7 @@ func (r *Runtime) builtinRedis_del(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.del called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	i, err := ro.cli.Del(call.Argument(0).toString().String()).Result()
+	i, err := ro.cli.Del(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -70,7 +71,7 @@ func (r *Runtime) builtinRedis_ttl(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.ttl called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	d, err := ro.cli.TTL(call.Argument(0).toString().String()).Result()
+	d, err := ro.cli.TTL(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -84,7 +85,7 @@ func (r *Runtime) builtinRedis_llen(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.llen called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	l, err := ro.cli.LLen(call.Argument(0).toString().String()).Result()
+	l, err := ro.cli.LLen(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return intToValue(-1)
 	}
@@ -100,7 +101,7 @@ func (r *Runtime) builtinRedis_lrange(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_start := call.Argument(1).ToInteger()
 	_stop := call.Argument(2).ToInteger()
-	s, err := ro.cli.LRange(_key, _start, _stop).Result()
+	s, err := ro.cli.LRange(c0.Background(), _key, _start, _stop).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -116,7 +117,7 @@ func (r *Runtime) builtinRedis_lindex(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_idx := call.Argument(1).ToInteger()
-	s, err := ro.cli.LIndex(_key, _idx).Result()
+	s, err := ro.cli.LIndex(c0.Background(), _key, _idx).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -134,7 +135,7 @@ func (r *Runtime) builtinRedis_lpush(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_obj := call.Argument(1).Export()
-	i, err := ro.cli.LPush(_key, _obj).Result()
+	i, err := ro.cli.LPush(c0.Background(), _key, _obj).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -148,7 +149,7 @@ func (r *Runtime) builtinRedis_lpop(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.lpop called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	s, err := ro.cli.LPop(call.Argument(0).toString().String()).Result()
+	s, err := ro.cli.LPop(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -167,7 +168,7 @@ func (r *Runtime) builtinRedis_lset(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_idx := call.Argument(1).ToInteger()
 	_obj := call.Argument(2).Export()
-	err := ro.cli.LSet(_key, _idx, _obj).Err()
+	err := ro.cli.LSet(c0.Background(), _key, _idx, _obj).Err()
 	return r.toBoolean(err == nil)
 }
 
@@ -180,7 +181,7 @@ func (r *Runtime) builtinRedis_ltrim(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_start := call.Argument(1).ToInteger()
 	_stop := call.Argument(2).ToInteger()
-	err := ro.cli.LTrim(_key, _start, _stop).Err()
+	err := ro.cli.LTrim(c0.Background(), _key, _start, _stop).Err()
 	return r.toBoolean(err == nil)
 }
 
@@ -193,7 +194,7 @@ func (r *Runtime) builtinRedis_lrem(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_idx := call.Argument(1).ToInteger()
 	_obj := call.Argument(2).Export()
-	i, err := ro.cli.LRem(_key, _idx, _obj).Result()
+	i, err := ro.cli.LRem(c0.Background(), _key, _idx, _obj).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -210,7 +211,7 @@ func (r *Runtime) builtinRedis_linsertAfter(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_pivot := call.Argument(1).Export()
 	_val := call.Argument(2).Export()
-	i, err := ro.cli.LInsertAfter(_key, _pivot, _val).Result()
+	i, err := ro.cli.LInsertAfter(c0.Background(), _key, _pivot, _val).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -227,7 +228,7 @@ func (r *Runtime) builtinRedis_linsertBefore(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_pivot := call.Argument(1).Export()
 	_val := call.Argument(2).Export()
-	i, err := ro.cli.LInsertBefore(_key, _pivot, _val).Result()
+	i, err := ro.cli.LInsertBefore(c0.Background(), _key, _pivot, _val).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -243,7 +244,7 @@ func (r *Runtime) builtinRedis_sadd(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_obj := call.Argument(1).Export()
-	i, err := ro.cli.SAdd(_key, _obj).Result()
+	i, err := ro.cli.SAdd(c0.Background(), _key, _obj).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -257,7 +258,7 @@ func (r *Runtime) builtinRedis_scard(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.scard called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	i, err := ro.cli.SCard(call.Argument(0).toString().String()).Result()
+	i, err := ro.cli.SCard(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -273,7 +274,7 @@ func (r *Runtime) builtinRedis_sdiff(call FunctionCall) Value {
 	}
 	_key1 := call.Argument(0).toString().String()
 	_key2 := call.Argument(1).toString().String()
-	s, err := ro.cli.SDiff(_key1, _key2).Result()
+	s, err := ro.cli.SDiff(c0.Background(), _key1, _key2).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -289,7 +290,7 @@ func (r *Runtime) builtinRedis_sinter(call FunctionCall) Value {
 	}
 	_key1 := call.Argument(0).toString().String()
 	_key2 := call.Argument(1).toString().String()
-	s, err := ro.cli.SInter(_key1, _key2).Result()
+	s, err := ro.cli.SInter(c0.Background(), _key1, _key2).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -305,7 +306,7 @@ func (r *Runtime) builtinRedis_sisMember(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_obj := call.Argument(1).Export()
-	b, err := ro.cli.SIsMember(_key, _obj).Result()
+	b, err := ro.cli.SIsMember(c0.Background(), _key, _obj).Result()
 	if err != nil {
 		return valueFalse
 	} else {
@@ -319,7 +320,7 @@ func (r *Runtime) builtinRedis_smembers(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.smembers called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	s, err := ro.cli.SMembers(call.Argument(0).toString().String()).Result()
+	s, err := ro.cli.SMembers(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -337,7 +338,7 @@ func (r *Runtime) builtinRedis_smove(call FunctionCall) Value {
 	_key1 := call.Argument(0).toString().String()
 	_key2 := call.Argument(1).toString().String()
 	_obj := call.Argument(2).Export()
-	b, err := ro.cli.SMove(_key1, _key2, _obj).Result()
+	b, err := ro.cli.SMove(c0.Background(), _key1, _key2, _obj).Result()
 	if err != nil {
 		return valueFalse
 	} else {
@@ -351,7 +352,7 @@ func (r *Runtime) builtinRedis_spop(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.spop called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	s, err := ro.cli.SPop(call.Argument(0).toString().String()).Result()
+	s, err := ro.cli.SPop(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -367,7 +368,7 @@ func (r *Runtime) builtinRedis_srandMember(call FunctionCall) Value {
 	if !ok {
 		panic(r.NewTypeError("Method Redis.prototype.srandMember called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
-	s, err := ro.cli.SRandMember(call.Argument(0).toString().String()).Result()
+	s, err := ro.cli.SRandMember(c0.Background(), call.Argument(0).toString().String()).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -385,7 +386,7 @@ func (r *Runtime) builtinRedis_srem(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_obj := call.Argument(1).Export()
-	i, err := ro.cli.SRem(_key, _obj).Result()
+	i, err := ro.cli.SRem(c0.Background(), _key, _obj).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -401,7 +402,7 @@ func (r *Runtime) builtinRedis_sunion(call FunctionCall) Value {
 	}
 	_key1 := call.Argument(0).toString().String()
 	_key2 := call.Argument(1).toString().String()
-	s, err := ro.cli.SUnion(_key1, _key2).Result()
+	s, err := ro.cli.SUnion(c0.Background(), _key1, _key2).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -417,7 +418,7 @@ func (r *Runtime) builtinRedis_hget(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_field := call.Argument(1).toString().String()
-	s, err := ro.cli.HGet(_key, _field).Result()
+	s, err := ro.cli.HGet(c0.Background(), _key, _field).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -435,7 +436,7 @@ func (r *Runtime) builtinRedis_hdel(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_field := call.Argument(1).toString().String()
-	i, err := ro.cli.HDel(_key, _field).Result()
+	i, err := ro.cli.HDel(c0.Background(), _key, _field).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -451,7 +452,7 @@ func (r *Runtime) builtinRedis_hexists(call FunctionCall) Value {
 	}
 	_key := call.Argument(0).toString().String()
 	_field := call.Argument(1).toString().String()
-	b, err := ro.cli.HExists(_key, _field).Result()
+	b, err := ro.cli.HExists(c0.Background(), _key, _field).Result()
 	if err != nil {
 		return valueFalse
 	} else {
@@ -466,7 +467,7 @@ func (r *Runtime) builtinRedis_hgetAll(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Redis.prototype.getall called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_key := call.Argument(0).toString().String()
-	m, err := ro.cli.HGetAll(_key).Result()
+	m, err := ro.cli.HGetAll(c0.Background(), _key).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -481,7 +482,7 @@ func (r *Runtime) builtinRedis_hkeys(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Redis.prototype.hkeys called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_key := call.Argument(0).toString().String()
-	s, err := ro.cli.HKeys(_key).Result()
+	s, err := ro.cli.HKeys(c0.Background(), _key).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -496,7 +497,7 @@ func (r *Runtime) builtinRedis_hlen(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Redis.prototype.hlen called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_key := call.Argument(0).toString().String()
-	i, err := ro.cli.HLen(_key).Result()
+	i, err := ro.cli.HLen(c0.Background(), _key).Result()
 	if err != nil {
 		return intToValue(-1)
 	} else {
@@ -513,11 +514,12 @@ func (r *Runtime) builtinRedis_hset(call FunctionCall) Value {
 	_key := call.Argument(0).toString().String()
 	_field := call.Argument(1).toString().String()
 	_obj := call.Argument(2).Export()
-	b, err := ro.cli.HSet(_key, _field, _obj).Result()
+	i, err := ro.cli.HSet(c0.Background(), _key, _field, _obj).Result()
 	if err != nil {
-		return valueFalse
+		return intToValue(-1)
 	} else {
-		return r.toBoolean(b)
+
+		return intToValue(i)
 	}
 }
 
@@ -528,7 +530,7 @@ func (r *Runtime) builtinRedis_hvals(call FunctionCall) Value {
 		panic(r.NewTypeError("Method Redis.prototype.hvals called on incompatible receiver %s", r.objectproto_toString(FunctionCall{This: thisObj})))
 	}
 	_key := call.Argument(0).toString().String()
-	s, err := ro.cli.HVals(_key).Result()
+	s, err := ro.cli.HVals(c0.Background(), _key).Result()
 	if err != nil {
 		return _null
 	} else {
@@ -553,7 +555,7 @@ func (r *Runtime) builtin_newRedis(args []Value, newTarget *Object) *Object {
 		Password: _password,
 		DB:       int(_dbIdx),
 	})
-	_, err := c.Ping().Result()
+	_, err := c.Ping(c0.Background()).Result()
 	if err != nil {
 		return nil
 	} else {
