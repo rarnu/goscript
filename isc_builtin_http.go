@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -23,14 +24,21 @@ func parseHttpParams(call FunctionCall) (string, map[string][]string, map[string
 	params := map[string]string{}
 	if _params != nil {
 		for k, v := range _params.(map[string]any) {
-			params[k] = fmt.Sprintf("%v", v)
+			t := reflect.TypeOf(v).String()
+			if strings.HasPrefix(t, "[]") {
+				// 是数组
+				l := len(v.([]any))
+				for i := 0; i < l; i++ {
+					// 这里需要手动转义，后面不会再转义了
+					params[fmt.Sprintf("%s%%5B%d%%5D", k, i)] = fmt.Sprintf("%v", v.([]any)[i])
+				}
+			} else {
+				// 不是数组
+				params[k] = fmt.Sprintf("%v", v)
+			}
 		}
 	}
 	body := call.Argument(3).Export()
-	//var body map[string]any
-	//if _body != nil {
-	//	body = _body.(map[string]any)
-	//}
 	return _url, header, params, body
 }
 

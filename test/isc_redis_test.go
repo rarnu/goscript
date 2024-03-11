@@ -9,9 +9,8 @@ import (
 
 func TestRedisCluster(t *testing.T) {
 	SCRIPT := `
-let cli = new RedisCluster('10.211.55.5:6379', 'rootroot')
-cli.set('go-script:sample-id', 'abcdefg')
-let i = cli.get('go-script:sample-id')
+let cli = new RedisCluster('10.30.30.151:26379','ZljIsysc0re123');
+let i = cli.get('mygroup:myid')
 console.log(i)
 cli.close()
 `
