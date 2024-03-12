@@ -211,6 +211,7 @@ a
 
 func TestHttp(t *testing.T) {
 	SCRIPT := `
+HTTP.setTimeout('30s')
 let ret = HTTP.get('http://0.0.0.0:9013/api/core/license/info', null, null)
 console.log(ret.statusCode)
 console.log(ret.data.data.licenseCode)

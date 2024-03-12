@@ -67,6 +67,12 @@ func parseHttpResult(r *Runtime, sc int, header map[string][]string, body any, e
 	return r.ToValue(httpRet)
 }
 
+func (r *Runtime) builtinHTTP_setTimeout(call FunctionCall) Value {
+	timeout := call.Argument(0).toString().String()
+	httpClient.Timeout, _ = time.ParseDuration(timeout)
+	return _undefined
+}
+
 func (r *Runtime) builtinHTTP_get(call FunctionCall) Value {
 	u, h, p, _ := parseHttpParams(call)
 	sc, hd, body, err := privateHttpGet(u, h, p)
@@ -111,6 +117,7 @@ func (r *Runtime) builtinHTTP_patch(call FunctionCall) Value {
 
 func (r *Runtime) initHttp() {
 	HTTP := r.newBaseObject(r.global.ObjectPrototype, "HTTP")
+	HTTP._putProp("setTimeout", r.newNativeFunc(r.builtinHTTP_setTimeout, nil, "set", nil, 1), true, false, true)
 	HTTP._putProp("get", r.newNativeFunc(r.builtinHTTP_get, nil, "get", nil, 3), true, false, true)
 	HTTP._putProp("post", r.newNativeFunc(r.builtinHTTP_post, nil, "post", nil, 4), true, false, true)
 	HTTP._putProp("postForm", r.newNativeFunc(r.builtinHTTP_postForm, nil, "postForm", nil, 4), true, false, true)
@@ -128,18 +135,18 @@ var httpClient = createHTTPClient()
 func createHTTPClient() *http.Client {
 	client := &http.Client{}
 	// HTTP 客户端配置
-	client.Timeout, _ = time.ParseDuration("5s")
-	transport := &http.Transport{}
-	transport.TLSHandshakeTimeout, _ = time.ParseDuration("10s")
-	transport.DisableCompression = true
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConns = 100
-	transport.MaxIdleConnsPerHost = 100
-	transport.MaxConnsPerHost = 100
-	transport.IdleConnTimeout, _ = time.ParseDuration("90s")
-	transport.ResponseHeaderTimeout, _ = time.ParseDuration("15s")
-	transport.ExpectContinueTimeout, _ = time.ParseDuration("1s")
-	client.Transport = transport
+	// client.Timeout, _ = time.ParseDuration("5s")
+	//transport := &http.Transport{}
+	//transport.TLSHandshakeTimeout, _ = time.ParseDuration("10s")
+	//transport.DisableCompression = true
+	//transport.MaxIdleConns = 100
+	//transport.MaxIdleConns = 100
+	//transport.MaxIdleConnsPerHost = 100
+	//transport.MaxConnsPerHost = 100
+	//transport.IdleConnTimeout, _ = time.ParseDuration("90s")
+	//transport.ResponseHeaderTimeout, _ = time.ParseDuration("15s")
+	//transport.ExpectContinueTimeout, _ = time.ParseDuration("1s")
+	//client.Transport = transport
 	return client
 }
 
