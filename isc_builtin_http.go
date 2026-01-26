@@ -1,6 +1,7 @@
 package goscript
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,6 +132,7 @@ func createHTTPClient() *http.Client {
 	transport.IdleConnTimeout, _ = time.ParseDuration("90s")
 	transport.ResponseHeaderTimeout, _ = time.ParseDuration("15s")
 	transport.ExpectContinueTimeout, _ = time.ParseDuration("1s")
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	client.Transport = transport
 	return client
 }
